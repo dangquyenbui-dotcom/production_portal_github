@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Open Jobs Viewer{% endblock %}
+
+{% block navbar_title %}💼 Open Jobs{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<style>
+    /* Max container width */
+    .container { max-width: 98vw; padding: 0 1vw;}
+
+    /* Filter Bar - Adjusted for horizontal layout */
+    .controls-bar {
+        background: var(--bg-secondary); padding: 15px 20px; border-radius: 10px;
+        margin-bottom: 20px; box-shadow: var(--shadow-sm); border: 1px solid var(--border-primary);
+        display: flex; flex-wrap: wrap; align-items: center; gap: 20px;
+    }
+    .filters-container {
+        display: flex; flex-wrap: wrap; gap: 15px;
+        flex-grow: 1; align-items: center;
+    }
+    .filter-group { display: flex; align-items: center; gap: 8px; }
+    .filter-group label { font-weight: 500; color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; }
+    .filter-select {
+        min-width: 160px; padding: 8px 12px; border: 2px solid var(--input-border);
+        border-radius: 6px; background: var(--input-bg); color: var(--text-primary); font-size: 14px;
+        -webkit-appearance: none; appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23718096' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat; background-position: right 12px center; padding-right: 40px;
+    }
+    [data-theme="dark"] .filter-select {
+         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23cbd5e0' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+    }
+    .filter-select:focus {
+        outline: none; border-color: var(--input-focus-border);
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    [data-theme="dark"] .filter-select:focus {
+         box-shadow: 0 0 0 3px rgba(144, 205, 244, 0.1);
+    }
+    .filters-container .btn-secondary { padding: 8px 16px; font-size: 14px; }
+
+    /* Refresh Container Styles (like MRP) */
+    .refresh-container {
+        display: flex; align-items: center; gap: 15px;
+        margin-left: auto; /* Pushes to the right */
+    }
+    .last-updated { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+    .refresh-button { font-size: 14px; padding: 8px 16px; }
+
+
+    /* Live Update Toggle - Reverted to styled switch */
+    .live-toggle-container { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+    .live-toggle-label { font-weight: 600; color: var(--text-secondary); }
+    .toggle-switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border-secondary); transition: .4s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+    input:checked + .slider { background-color: var(--accent-green); }
+    input:checked + .slider:before { transform: translateX(26px); }
+
+    /* Highlight Changed Cells */
+    .cell-changed { animation: highlight-change 1.5s ease-out; }
+    @keyframes highlight-change { 0% { background-color: var(--accent-orange); color: white; } 100% { background-color: transparent; color: inherit; } }
+    [data-theme="dark"] .cell-changed { animation: highlight-change-dark 1.5s ease-out; }
+    @keyframes highlight-change-dark { 0% { background-color: var(--accent-orange); color: black; } 100% { background-color: transparent; color: inherit; } }
+
+    /* Static Header Styles */
+    .job-header-static {
+        display: grid; grid-template-columns: 1fr 1fr 1.5fr 0.8fr 0.8fr 1fr 0.3fr; gap: 15px;
+        padding: 10px 20px; background: var(--table-header-bg); border: 1px solid var(--border-primary);
+        border-radius: 10px 10px 0 0; border-bottom: 2px solid var(--border-primary); margin-bottom: 0;
+    }
+    .job-header-static .header-label { font-size: 12px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .job-header-static .sortable { cursor: pointer; user-select: none; }
+    .job-header-static .sortable:hover { color: var(--text-primary); }
+    .sort-indicator { display: inline-block; margin-left: 5px; color: var(--text-tertiary); opacity: 0.5; transition: opacity 0.2s; width: 1em; }
+    .sortable.sorted-asc .sort-indicator, .sortable.sorted-desc .sort-indicator { opacity: 1; color: var(--accent-blue); }
+    .numeric { text-align: right; }
+
+    /* Accordion Container */
+    .jobs-accordion { border: 1px solid var(--border-primary); border-top: none; box-shadow: var(--shadow-sm); border-radius: 0 0 10px 10px; overflow: hidden; }
+
+    /* Job Card becomes just a container now */
+    .job-card { overflow: hidden; }
+    .job-card.hidden-row { display: none; }
+
+    /* Job Header (as Row) */
+    .job-header {
+        display: grid; grid-template-columns: 1fr 1fr 1.5fr 0.8fr 0.8fr 1fr 0.3fr; gap: 15px;
+        align-items: center; padding: 12px 20px; cursor: pointer; border-left: 5px solid transparent;
+        transition: background-color 0.2s; background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary);
+    }
+    .jobs-accordion .job-card:last-child .job-header { border-bottom: none; }
+    .job-header:hover { background-color: var(--bg-hover); }
+
+    .job-info { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .job-info strong { font-size: 1em; color: var(--text-primary); font-weight: 600; display: block; }
+    .job-header .job-info small { display: none !important; }
+    .job-info.numeric strong { text-align: right; }
+
+    /* Accordion Details */
+    .expand-icon { font-size: 24px; color: var(--text-tertiary); transition: transform 0.3s ease; text-align: right; }
+    .job-header.expanded .expand-icon { transform: rotate(90deg); }
+    .transaction-details { display: none; padding: 20px 30px; background-color: var(--bg-tertiary); border-top: 1px solid var(--border-primary); }
+    .transaction-table { width: 100%; border-collapse: collapse; }
+    .transaction-table th, .transaction-table td { padding: 10px 15px; font-size: 13px; text-align: left; border-bottom: 1px solid var(--border-primary); }
+    .transaction-table tr:last-child td { border-bottom: none; }
+    .transaction-table thead { background-color: var(--bg-hover); }
+    .transaction-table th { font-weight: 600; color: var(--text-secondary); white-space: nowrap;}
+
+    /* Footer */
+    .grid-footer { padding: 10px 20px; text-align: right; font-size: 14px; color: var(--text-tertiary); font-weight: 500; background: var(--bg-secondary); border-radius: 0 0 10px 10px; border: 1px solid var(--border-primary); border-top: none; margin-top: -1px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="header-card">
+    <h1>Live Open Jobs</h1>
+    <p>Real-time view of open production jobs.</p>
+</div>
+
+<div class="controls-bar">
+    <div class="filters-container">
+        <div class="filter-group"><label for="customerFilter">Customer:</label><select id="customerFilter" class="form-select filter-select"><option value="">All</option></select></div>
+        <div class="filter-group"><label for="jobFilter">Job:</label><select id="jobFilter" class="form-select filter-select"><option value="">All</option></select></div>
+        <div class="filter-group"><label for="partFilter">Part:</label><select id="partFilter" class="form-select filter-select"><option value="">All</option></select></div>
+        <div class="filter-group"><label for="soFilter">Sales Order:</label><select id="soFilter" class="form-select filter-select"><option value="">All</option></select></div>
+        <button class="btn btn-secondary" id="resetBtn">Reset Filters</button>
+    </div>
+    <div class="refresh-container">
+        <span class="last-updated" id="lastUpdated"></span>
+        <button class="btn btn-primary refresh-button" id="refreshBtn">
+            🔄 Refresh Data
+        </button>
+    </div>
+</div>
+
+<div class="live-toggle-container">
+    <span class="live-toggle-label">Live Update:</span>
+    <label class="toggle-switch">
+        <input type="checkbox" id="liveUpdateToggle">
+        <span class="slider"></span>
+    </label>
+    <span id="updateStatus" style="font-size: 0.9em; color: var(--text-tertiary);"></span>
+</div>
+
+<div id="alerts"></div>
+
+<div class="job-header-static">
+    <div class="header-label sortable" data-column-id="job" data-type="string">Job Number<span class="sort-indicator"></span></div>
+    <div class="header-label sortable" data-column-id="part" data-type="string">Part Number<span class="sort-indicator"></span></div>
+    <div class="header-label sortable" data-column-id="customer" data-type="string">Customer<span class="sort-indicator"></span></div>
+    <div class="header-label sortable" data-column-id="so" data-type="string">Sales Order<span class="sort-indicator"></span></div>
+    <div class="header-label numeric sortable" data-column-id="required" data-type="numeric">Required Qty<span class="sort-indicator"></span></div>
+    <div class="header-label numeric sortable" data-column-id="completed" data-type="numeric">Completed Qty<span class="sort-indicator"></span></div>
+    <div class="expand-icon" style="visibility: hidden;">›</div>
+</div>
+
+<div class="jobs-accordion">
+    {% if jobs %}
+        {% for job in jobs %}
+        <div class="job-card"
+             data-job-id="{{ job.job_number }}" data-customer="{{ job.customer_name }}"
+             data-job="{{ job.job_number }}" data-part="{{ job.part_number }}"
+             data-so="{{ job.sales_order }}">
+            <div class="job-header">
+                <div class="job-info" data-column-id="job"><strong data-field="job_number">{{ job.job_number }}</strong></div>
+                <div class="job-info" data-column-id="part"><strong data-field="part_number">{{ job.part_number }}</strong></div>
+                <div class="job-info" data-column-id="customer"><strong data-field="customer_name">{{ job.customer_name }}</strong></div>
+                <div class="job-info" data-column-id="so"><strong data-field="sales_order">{{ job.sales_order }}</strong></div>
+                <div class="job-info numeric" data-column-id="required"><strong data-field="required_qty">{{ "{:,.2f}".format(job.required_qty|float) }}</strong></div>
+                <div class="job-info numeric" data-column-id="completed" data-field="completed_qty" title="{{ job.tooltip }}"><strong>{{ "{:,.2f}".format(job.completed_qty|float) }}</strong></div>
+                <div class="expand-icon">›</div>
+            </div>
+            <div class="transaction-details">
+                 <table class="transaction-table">
+                     <thead><tr><th>Part</th><th>Part Description</th><th class="numeric">Issued Inventory</th><th class="numeric">De-issue</th><th class="numeric">Relieve Job</th><th class="numeric">Yield Cost/Scrap</th><th class="numeric">Yield Loss</th></tr></thead>
+                     <tbody>
+                         {% for part_summary in job.aggregated_list %} <tr data-part-number="{{ part_summary.part_number }}"><td>{{ part_summary.part_number }}</td><td>{{ part_summary.part_description }}</td><td class="numeric" data-field="Issued inventory">{{ "{:,.2f}".format(part_summary['Issued inventory']|float) }}</td><td class="numeric" data-field="De-issue">{{ "{:,.2f}".format(part_summary['De-issue']|float) }}</td><td class="numeric" data-field="Relieve Job">{{ "{:,.2f}".format(part_summary['Relieve Job']|float) }}</td><td class="numeric" data-field="Yield Cost/Scrap">{{ "{:,.2f}".format(part_summary['Yield Cost/Scrap']|float) }}</td><td class="numeric" data-field="Yield Loss">{{ "%.2f"|format(part_summary['Yield Loss']|float) }}%</td></tr> {% endfor %}
+                         {% if not job.aggregated_list %} <tr><td colspan="7" style="text-align: center; color: var(--text-tertiary);">No component transactions found.</td></tr> {% endif %}
+                     </tbody>
+                 </table>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="empty-state" style="padding: 40px; background: var(--bg-secondary); border-radius: 0 0 10px 10px; border: 1px solid var(--border-primary); border-top: none;">
+            <div class="empty-state-icon">📦</div><h3>No Open Job data found</h3><p>Could not retrieve open job information from the ERP.</p>
+        </div>
+    {% endif %}
+</div>
+
+<div class="grid-footer" id="gridFooter">
+    <span id="rowCount">Showing 0 of 0 jobs</span>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/jobs.js') }}"></script>
+{% endblock %}
