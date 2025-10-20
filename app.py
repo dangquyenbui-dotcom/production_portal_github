@@ -78,6 +78,7 @@ def register_blueprints(app):
     from routes.admin.shifts import admin_shifts_bp
     from routes.admin.users import admin_users_bp
     from routes.admin.capacity import admin_capacity_bp
+    from routes.admin.permissions import admin_permissions_bp # <-- IMPORT NEW BLUEPRINT
 
     # Register blueprints
     app.register_blueprint(main_bp)
@@ -100,6 +101,7 @@ def register_blueprints(app):
     app.register_blueprint(admin_shifts_bp, url_prefix='/admin')
     app.register_blueprint(admin_users_bp, url_prefix='/admin')
     app.register_blueprint(admin_capacity_bp, url_prefix='/admin')
+    app.register_blueprint(admin_permissions_bp, url_prefix='/admin') # <-- REGISTER NEW BLUEPRINT
 # ***** END ENSURE THIS FUNCTION IS CORRECT *****
 
 def initialize_database():

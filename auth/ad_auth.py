@@ -8,12 +8,16 @@ from ldap3 import Server, Connection, ALL, SIMPLE, SUBTREE
 import ldap3.core.exceptions
 from werkzeug.security import generate_password_hash, check_password_hash
 from config import Config
+# --- ADD Database Import ---
+from database.permissions import permissions_db # Make sure permissions_db is correctly imported elsewhere
 
 # --- START: Local Admin Configuration ---
 LOCAL_ADMIN_USERNAME = 'production_portal_admin'
+# Ensure this hash matches what you intend
 LOCAL_ADMIN_PASSWORD_HASH = 'pbkdf2:sha256:1000000$7GUCiDMbjttS4Sa9$87463836cef236308961cbf57d01a4cd1b14e79c7bbd707ff15faa6a947c1609'
 # --- END: Local Admin Configuration ---
 
+# <<< --- VERIFY THIS FUNCTION DEFINITION EXISTS AND IS SPELLED CORRECTLY --- >>>
 def get_user_groups(username):
     """Get AD groups for a user using the service account"""
     if username == LOCAL_ADMIN_USERNAME:
@@ -22,10 +26,22 @@ def get_user_groups(username):
             'display_name': 'Local Portal Admin',
             'email': 'local_admin@system.local'
         }
+    # --- Ensure AD Service Account is configured if not in Test Mode ---
+    if not Config.AD_SERVICE_ACCOUNT or not Config.AD_SERVICE_PASSWORD:
+        print("Warning: AD_SERVICE_ACCOUNT or AD_SERVICE_PASSWORD not configured. Cannot query AD groups.")
+        # Return basic info without groups if service account is missing
+        return {
+            'groups': [],
+            'display_name': username, # Default display name
+            'email': f'{username}@{Config.AD_DOMAIN or "unknown.local"}' # Default email
+        }
+
     try:
         server = Server(Config.AD_SERVER, port=Config.AD_PORT, get_info=ALL)
+        # Construct the service user principal name correctly
         service_user = f'{Config.AD_SERVICE_ACCOUNT}@{Config.AD_DOMAIN}'
 
+        # Use SIMPLE authentication for service account bind
         service_conn = Connection(
             server,
             user=service_user,
@@ -46,13 +62,24 @@ def get_user_groups(username):
             user_entry = service_conn.entries[0]
 
             groups = []
+            # Check if memberOf attribute exists and has values
             if hasattr(user_entry, 'memberOf') and user_entry.memberOf:
-                for group_dn in user_entry.memberOf:
-                    group_name = str(group_dn).split(',')[0].replace('CN=', '')
-                    groups.append(group_name)
+                # Iterate through the memberOf attribute values
+                for group_dn in user_entry.memberOf.values: # Iterate through values if it's a list
+                    # Extract the CN (Common Name) part of the group's Distinguished Name
+                    # Example DN: CN=GroupName,OU=Groups,DC=yourdomain,DC=local
+                    try:
+                        # Find the first 'CN=' part
+                        cn_part = str(group_dn).split(',')[0]
+                        if cn_part.upper().startswith('CN='):
+                             group_name = cn_part[3:] # Get the part after 'CN='
+                             groups.append(group_name)
+                    except Exception:
+                        pass # Ignore parsing errors for specific group DNs
 
-            display_name = str(user_entry.displayName) if hasattr(user_entry, 'displayName') else username
-            email = str(user_entry.mail) if hasattr(user_entry, 'mail') else f'{username}@{Config.AD_DOMAIN}'
+            # Safely get display name and email
+            display_name = str(user_entry.displayName) if hasattr(user_entry, 'displayName') and user_entry.displayName else username
+            email = str(user_entry.mail) if hasattr(user_entry, 'mail') and user_entry.mail else f'{username}@{Config.AD_DOMAIN or "unknown.local"}'
 
             service_conn.unbind()
 
@@ -61,18 +88,36 @@ def get_user_groups(username):
                 'display_name': display_name,
                 'email': email
             }
+        else:
+            print(f"User {username} not found in AD search.")
+            service_conn.unbind()
+            # Return basic info even if user not found, authentication might still work
+            return {
+                'groups': [],
+                'display_name': username,
+                'email': f'{username}@{Config.AD_DOMAIN or "unknown.local"}'
+            }
 
-        service_conn.unbind()
-        return None
 
+    except ldap3.core.exceptions.LDAPSocketOpenError as e:
+        print(f"LDAP Connection Error getting groups for {username}: Could not connect to AD server {Config.AD_SERVER}:{Config.AD_PORT}. Details: {e}")
+        return None # Indicate connection failure
+    except ldap3.core.exceptions.LDAPBindError as e:
+         print(f"LDAP Bind Error getting groups for {username} using service account {service_user}: Check service account credentials. Details: {e}")
+         return None # Indicate bind failure
     except Exception as e:
-        print(f"Error getting user groups: {str(e)}")
-        return None
+        import traceback
+        print(f"Unexpected error getting user groups for {username}: {str(e)}")
+        traceback.print_exc()
+        return None # Indicate general failure
+
+# <<< --- REST OF THE FILE (authenticate_user, permission checks, test_ad_connection) --- >>>
+# ... (ensure the rest of the file provided previously is present) ...
 
 def authenticate_user(username, password):
     """Authenticate user against Active Directory OR local admin credentials"""
 
-    # --- START: Check for Local Admin ---
+    # --- Check for Local Admin ---
     if username == LOCAL_ADMIN_USERNAME and check_password_hash(LOCAL_ADMIN_PASSWORD_HASH, password):
         print(f"Authenticated local admin: {username}")
         # Grant all admin permissions
@@ -85,104 +130,71 @@ def authenticate_user(username, password):
             'is_user': True,
             'is_scheduling_admin': True, # Scheduling Admin
             'is_scheduling_user': True,
-            'is_portal_admin': True, # Flag for the new group type (optional but good practice)
+            'is_portal_admin': True, # Flag for the new group type
         }
-    # --- END: Check for Local Admin ---
 
     # Test mode for development
     if Config.TEST_MODE:
         test_users = {
-            # ... (test users remain the same) ...
-             'dt_admin': {
-                'password': 'password', 'display_name': 'Downtime Admin',
-                'groups': [Config.AD_ADMIN_GROUP]
-            },
-            'dt_user': {
-                'password': 'password', 'display_name': 'Downtime User',
-                'groups': [Config.AD_USER_GROUP]
-            },
-            'sched_admin': {
-                'password': 'password', 'display_name': 'Scheduling Admin',
-                'groups': [Config.AD_SCHEDULING_ADMIN_GROUP]
-            },
-            'sched_user': {
-                'password': 'password', 'display_name': 'Scheduling User',
-                'groups': [Config.AD_SCHEDULING_USER_GROUP]
-            },
-            'super_admin': {
-                'password': 'password', 'display_name': 'Super Admin',
-                'groups': [Config.AD_ADMIN_GROUP, Config.AD_SCHEDULING_ADMIN_GROUP]
-            },
-            # Add a test user for the new portal admin if needed
-            'portal_admin': {
-                'password': 'password', 'display_name': 'Portal Admin (Test)',
-                'groups': [Config.AD_PORTAL_ADMIN_GROUP]
-            }
+            'dt_admin': {'password': 'password', 'display_name': 'Downtime Admin', 'groups': [Config.AD_ADMIN_GROUP]},
+            'dt_user': {'password': 'password', 'display_name': 'Downtime User', 'groups': [Config.AD_USER_GROUP]},
+            'sched_admin': {'password': 'password', 'display_name': 'Scheduling Admin', 'groups': [Config.AD_SCHEDULING_ADMIN_GROUP]},
+            'sched_user': {'password': 'password', 'display_name': 'Scheduling User', 'groups': [Config.AD_SCHEDULING_USER_GROUP]},
+            'super_admin': {'password': 'password', 'display_name': 'Super Admin', 'groups': [Config.AD_ADMIN_GROUP, Config.AD_SCHEDULING_ADMIN_GROUP]},
+            'portal_admin': {'password': 'password', 'display_name': 'Portal Admin (Test)', 'groups': [Config.AD_PORTAL_ADMIN_GROUP]},
+             'no_group_user': {'password': 'password', 'display_name': 'No Group User', 'groups': []}
         }
 
         if username in test_users and test_users[username]['password'] == password:
             user = test_users[username]
-            # --- START: Check for new Portal Admin group in TEST MODE ---
             is_portal_admin = Config.AD_PORTAL_ADMIN_GROUP in user['groups']
-            # If portal admin, grant all permissions
             is_admin = Config.AD_ADMIN_GROUP in user['groups'] or is_portal_admin
             is_user = Config.AD_USER_GROUP in user['groups'] or is_portal_admin
             is_scheduling_admin = Config.AD_SCHEDULING_ADMIN_GROUP in user['groups'] or is_portal_admin
             is_scheduling_user = Config.AD_SCHEDULING_USER_GROUP in user['groups'] or is_portal_admin
-            # --- END: Check for new Portal Admin group in TEST MODE ---
 
-            # User must be in at least one relevant group (or be portal admin)
             if not any([is_admin, is_user, is_scheduling_admin, is_scheduling_user]):
                  return None
 
             return {
-                'username': username,
-                'display_name': user['display_name'],
-                'email': f'{username}@{Config.AD_DOMAIN}',
-                'groups': user['groups'],
-                'is_admin': is_admin,
-                'is_user': is_user,
-                'is_scheduling_admin': is_scheduling_admin,
-                'is_scheduling_user': is_scheduling_user,
-                'is_portal_admin': is_portal_admin, # Add the flag
+                'username': username, 'display_name': user['display_name'],
+                'email': f'{username}@{Config.AD_DOMAIN or "test.local"}', 'groups': user['groups'],
+                'is_admin': is_admin, 'is_user': is_user,
+                'is_scheduling_admin': is_scheduling_admin, 'is_scheduling_user': is_scheduling_user,
+                'is_portal_admin': is_portal_admin,
             }
-        # If not local admin and not a test user in test mode, return None
         return None
 
     # Real AD Authentication
+    if not Config.AD_SERVER or not Config.AD_DOMAIN:
+        print("AD_SERVER or AD_DOMAIN not configured. Cannot perform AD authentication.")
+        return None
+
     try:
         server = Server(Config.AD_SERVER, port=Config.AD_PORT, get_info=ALL)
         user_principal = f'{username}@{Config.AD_DOMAIN}'
 
         try:
-            # Attempt user authentication
-            user_conn = Connection(
-                server,
-                user=user_principal,
-                password=password,
-                authentication=SIMPLE,
-                auto_bind=True
-            )
+            user_conn = Connection(server, user=user_principal, password=password, authentication=SIMPLE, auto_bind=True)
+            # If bind succeeds, authentication is successful
             user_conn.unbind()
+            print(f"AD authentication successful for user: {username}")
 
-            # Get user groups
+            # Now get user groups and info (critical step)
             user_info = get_user_groups(username)
 
             if user_info:
-                # --- START: Check for new Portal Admin group in AD ---
                 is_portal_admin = Config.AD_PORTAL_ADMIN_GROUP in user_info['groups']
-
-                # Determine permissions based on groups
+                # Determine base roles from AD groups
                 is_in_admin = Config.AD_ADMIN_GROUP in user_info['groups'] or is_portal_admin
                 is_in_user = Config.AD_USER_GROUP in user_info['groups'] or is_portal_admin
                 is_in_scheduling_admin = Config.AD_SCHEDULING_ADMIN_GROUP in user_info['groups'] or is_portal_admin
                 is_in_scheduling_user = Config.AD_SCHEDULING_USER_GROUP in user_info['groups'] or is_portal_admin
-                # --- END: Check for new Portal Admin group in AD ---
 
-                # User must be in at least one relevant group (or be portal admin)
+                # User must be in at least one relevant group OR be portal admin to log in
                 if not any([is_in_admin, is_in_user, is_in_scheduling_admin, is_in_scheduling_user]):
-                    print(f"User {username} not in required AD groups")
-                    return None
+                    print(f"User {username} authenticated but not in required base AD groups")
+                    return None # No base role, cannot log in
 
                 return {
                     'username': username,
@@ -193,81 +205,123 @@ def authenticate_user(username, password):
                     'is_user': is_in_user,
                     'is_scheduling_admin': is_in_scheduling_admin,
                     'is_scheduling_user': is_in_scheduling_user,
-                    'is_portal_admin': is_portal_admin, # Add the flag
+                    'is_portal_admin': is_portal_admin,
                 }
+            else:
+                 # This case means authentication worked, but group lookup failed
+                 print(f"AD authentication succeeded for {username}, but failed to retrieve group info. Denying login.")
+                 return None
 
         except ldap3.core.exceptions.LDAPBindError:
+            # This is the expected exception for wrong password
             print(f"Invalid AD credentials for user: {username}")
-            return None # Failed AD auth, and wasn't local admin
+            return None # Failed AD auth
 
+    except ldap3.core.exceptions.LDAPSocketOpenError as e:
+         print(f"LDAP Connection Error authenticating {username}: Could not connect to AD server {Config.AD_SERVER}:{Config.AD_PORT}. Details: {e}")
+         return None # Indicate connection failure
     except Exception as e:
-        print(f"AD Authentication error: {str(e)}")
-        # If AD is unavailable, this will likely fail, but local admin check happened first.
+        import traceback
+        print(f"Unexpected AD Authentication error for {username}: {str(e)}")
+        traceback.print_exc()
         return None
 
-    # Fallback if AD auth somehow fails without exception but didn't match local admin
-    return None
+    return None # Fallback
 
-# --- Functions below need updating ---
+
+# --- Helper to get specific permissions ---
+def _get_specific_permissions(session):
+    """ Fetches specific permissions from the DB for the logged-in user. """
+    if 'user' in session and 'username' in session['user']:
+        try:
+            return permissions_db.get_user_permissions(session['user']['username'])
+        except Exception as e:
+            print(f"Error fetching specific permissions for {session['user']['username']}: {e}")
+            return {
+                'can_view_scheduling': False, 'can_edit_scheduling': False,
+                'can_view_downtime': False, 'can_view_reports': False
+            }
+    return {}
+
+# --- Updated Permission Check Functions ---
 
 def require_login(session):
-    """Check if user is logged in"""
     return 'user' in session
 
-def require_admin(session):
-    """Check if user is DowntimeTracker_Admin, Production_Portal_Admin OR local admin"""
+def require_portal_admin(session):
     if 'user' in session:
-        # Check local admin OR portal admin flag OR specific group flag
+        return (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
+                session['user'].get('is_portal_admin', False))
+    return False
+
+def require_admin(session):
+    if 'user' in session:
         return (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
                 session['user'].get('is_portal_admin', False) or
-                session['user'].get('is_admin', False))
+                session['user'].get('is_admin', False)) # is_admin = Downtime Admin
     return False
 
 def require_user(session):
-    """Check if user is DowntimeTracker_User, Production_Portal_Admin OR local admin"""
     if 'user' in session:
-        # Local admin and portal admin have user permissions too
-        return (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
-                session['user'].get('is_portal_admin', False) or
-                session['user'].get('is_user', False))
+        if (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
+            session['user'].get('is_portal_admin', False) or
+            session['user'].get('is_admin', False) or
+            session['user'].get('is_user', False)):
+            return True
+        specific_perms = _get_specific_permissions(session)
+        return specific_perms.get('can_view_downtime', False)
     return False
 
 def require_scheduling_admin(session):
-    """Check if user is Scheduling_Admin, Production_Portal_Admin OR local admin"""
     if 'user' in session:
-        # Local admin and portal admin have scheduling admin permissions too
-        return (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
-                session['user'].get('is_portal_admin', False) or
-                session['user'].get('is_scheduling_admin', False))
+        if (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
+            session['user'].get('is_portal_admin', False) or
+            session['user'].get('is_scheduling_admin', False)):
+            return True
+        specific_perms = _get_specific_permissions(session)
+        return specific_perms.get('can_edit_scheduling', False)
     return False
 
 def require_scheduling_user(session):
-    """Check if user is Scheduling_User, Production_Portal_Admin OR local admin"""
     if 'user' in session:
-        # Local admin and portal admin have scheduling user permissions too
-        return (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
-                session['user'].get('is_portal_admin', False) or
-                session['user'].get('is_scheduling_user', False))
+        if (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
+            session['user'].get('is_portal_admin', False) or
+            session['user'].get('is_scheduling_admin', False) or
+            session['user'].get('is_scheduling_user', False)):
+            return True
+        specific_perms = _get_specific_permissions(session)
+        return specific_perms.get('can_view_scheduling', False) or specific_perms.get('can_edit_scheduling', False)
+    return False
+
+def require_reports_user(session):
+    if 'user' in session:
+        if (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
+            session['user'].get('is_portal_admin', False) or
+            session['user'].get('is_admin', False) or
+            session['user'].get('is_scheduling_admin', False)):
+            return True
+        specific_perms = _get_specific_permissions(session)
+        return specific_perms.get('can_view_reports', False)
     return False
 
 def test_ad_connection():
-    """Test Active Directory connection"""
     if Config.TEST_MODE:
         return True
-
+    if not Config.AD_SERVER or not Config.AD_DOMAIN or not Config.AD_SERVICE_ACCOUNT or not Config.AD_SERVICE_PASSWORD:
+        print("AD connection test skipped: Missing AD configuration in .env")
+        return False
     try:
         server = Server(Config.AD_SERVER, port=Config.AD_PORT, get_info=ALL)
         service_user = f'{Config.AD_SERVICE_ACCOUNT}@{Config.AD_DOMAIN}'
-
-        conn = Connection(
-            server,
-            user=service_user,
-            password=Config.AD_SERVICE_PASSWORD,
-            authentication=SIMPLE,
-            auto_bind=True
-        )
+        conn = Connection(server, user=service_user, password=Config.AD_SERVICE_PASSWORD, authentication=SIMPLE, auto_bind=True)
         conn.unbind()
         return True
+    except ldap3.core.exceptions.LDAPSocketOpenError as e:
+        print(f"AD connection test failed: Could not connect to AD server {Config.AD_SERVER}:{Config.AD_PORT}. Details: {e}")
+        return False
+    except ldap3.core.exceptions.LDAPBindError as e:
+         print(f"AD connection test failed: Bind error using service account {service_user}. Check credentials. Details: {e}")
+         return False
     except Exception as e:
-        print(f"AD connection test failed: {str(e)}")
+        print(f"AD connection test failed with unexpected error: {str(e)}")
         return False
