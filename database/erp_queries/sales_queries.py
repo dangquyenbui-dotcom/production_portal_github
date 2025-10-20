@@ -12,13 +12,17 @@ class SalesQueries:
         """
         Calculates the value of Finished Goods inventory split into three date buckets
         relative to the 21st of the previous and current month.
+        MODIFIED: Converts date objects to 'YYYY-MM-DD' strings before passing as parameters
+                  to avoid SQLBindParameter errors with older ODBC drivers.
         """
         db = get_erp_db_connection()
         if not db:
+            # Return default structure if DB connection fails
             return {'label1': 'FG On Hand - Prior', 'value1': 0,
                     'label2': 'FG On Hand - Mid', 'value2': 0,
                     'label3': 'FG On Hand - Recent', 'value3': 0}
 
+        # Calculate date boundaries
         today = datetime.now()
         first_of_this_month = today.replace(day=1)
         last_of_previous_month = first_of_this_month - timedelta(days=1)
@@ -26,15 +30,18 @@ class SalesQueries:
         current_cutoff_date = today.replace(day=21)
         current_twentieth_date = today.replace(day=20) # End of middle bucket
 
-        date_format = '%m/%d/%y'
-        prior_cutoff_str = prior_cutoff_date.strftime(date_format)
-        current_twentieth_str = current_twentieth_date.strftime(date_format)
-        current_cutoff_str = current_cutoff_date.strftime(date_format)
+        # Format dates for labels (MM/DD/YY)
+        label_date_format = '%m/%d/%y'
+        prior_cutoff_str_label = prior_cutoff_date.strftime(label_date_format)
+        current_twentieth_str_label = current_twentieth_date.strftime(label_date_format)
+        current_cutoff_str_label = current_cutoff_date.strftime(label_date_format)
 
-        label1 = f"FG On Hand - Prior {prior_cutoff_str}"
-        label2 = f"FG On Hand - {prior_cutoff_str} To {current_twentieth_str}"
-        label3 = f"FG On Hand - From {current_cutoff_str}"
+        # Create labels
+        label1 = f"FG On Hand - Prior {prior_cutoff_str_label}"
+        label2 = f"FG On Hand - {prior_cutoff_str_label} To {current_twentieth_str_label}"
+        label3 = f"FG On Hand - From {current_cutoff_str_label}"
 
+        # SQL Query remains the same
         sql = """
             SELECT
                 SUM(CASE WHEN f.fi_lotdate < ? THEN f.fi_balance * p.pr_lispric ELSE 0 END) AS value1,
@@ -45,16 +52,28 @@ class SalesQueries:
             JOIN dmware w ON f.fi_waid = w.wa_id
             WHERE f.fi_balance > 0 AND p.pr_codenum LIKE 'T%' AND w.wa_name IN ('DUARTE', 'IRWINDALE');
         """
-        # Note: The logic requires date objects for comparison in pyodbc
-        params = (prior_cutoff_date.date(), prior_cutoff_date.date(), current_cutoff_date.date(), current_cutoff_date.date())
-        result = db.execute_query(sql, params)
 
+        # --- MODIFICATION: Convert date objects to strings ---
+        # Use an unambiguous format like 'YYYY-MM-DD' for SQL Server compatibility
+        sql_date_format = '%Y-%m-%d'
+        params = (
+            prior_cutoff_date.strftime(sql_date_format),
+            prior_cutoff_date.strftime(sql_date_format),
+            current_cutoff_date.strftime(sql_date_format),
+            current_cutoff_date.strftime(sql_date_format)
+        )
+        # --- END MODIFICATION ---
+
+        result = db.execute_query(sql, params) # Execute with string parameters
+
+        # Process results
         if result:
             return {
                 'label1': label1, 'value1': result[0]['value1'] or 0,
                 'label2': label2, 'value2': result[0]['value2'] or 0,
                 'label3': label3, 'value3': result[0]['value3'] or 0
             }
+        # Return default structure if query fails or returns no results
         return {'label1': label1, 'value1': 0, 'label2': label2, 'value2': 0, 'label3': label3, 'value3': 0}
 
     def get_shipped_for_current_month(self):
@@ -71,7 +90,8 @@ class SalesQueries:
               AND YEAR(ord.to_shipped) = YEAR(GETDATE());
         """
         result = db.execute_query(sql)
-        return result[0]['total_shipped_value'] if result and result[0]['total_shipped_value'] is not None else 0
+        # Ensure a float/decimal is returned, defaulting to 0.0
+        return result[0]['total_shipped_value'] if result and result[0]['total_shipped_value'] is not None else 0.0
 
     def get_open_order_schedule(self):
         """Retrieves a detailed list of all open sales orders with related production and risk data."""
