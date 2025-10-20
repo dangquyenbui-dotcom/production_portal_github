@@ -5,6 +5,8 @@ Provides centralized access to all database modules
 """
 
 from .connection import DatabaseConnection, get_db
+# Remove ERP connection import from here
+# from .erp_connection_base import get_erp_db_connection # Keep if needed elsewhere, but service is preferred
 from .erp_service import get_erp_service # Import the main service getter
 
 from .facilities import FacilitiesDB
@@ -20,7 +22,6 @@ from .scheduling import scheduling_db
 from .capacity import ProductionCapacityDB
 from .mrp_service import mrp_service
 from .sales_service import sales_service
-from .permissions import PermissionsDB # <-- ADD THIS IMPORT
 
 # Create singleton instances for local DB operations
 facilities_db = FacilitiesDB()
@@ -32,7 +33,6 @@ shifts_db = ShiftsDB()
 users_db = UsersDB()
 sessions_db = SessionsDB()
 capacity_db = ProductionCapacityDB()
-permissions_db = PermissionsDB() # <-- INSTANTIATE THE NEW DB CLASS
 
 # Export main database functions and service getters
 __all__ = [
@@ -51,6 +51,5 @@ __all__ = [
     'scheduling_db',
     'capacity_db',
     'mrp_service',
-    'sales_service',
-    'permissions_db' # <-- EXPORT THE NEW INSTANCE
+    'sales_service'
 ]

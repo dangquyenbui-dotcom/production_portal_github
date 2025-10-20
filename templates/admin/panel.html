@@ -64,14 +64,5 @@
         <div class="admin-title">User Management</div>
         <div class="admin-desc">View user activity and permissions</div>
     </a>
-
-    {# --- ADD THIS NEW CARD --- #}
-    {% if require_portal_admin(session) or user.username == 'production_portal_admin' %} {# Check for portal admin or local admin #}
-    <a href="/admin/permissions" class="admin-card admin"> {# Add admin class for emphasis #}
-        <div class="action-icon">🔑</div>
-        <div class="action-title">User Permissions</div>
-        <div class="action-desc">Manage specific user access rights.</div>
-    </a>
-    
 </div>
 {% endblock %}

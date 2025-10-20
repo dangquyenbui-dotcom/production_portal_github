@@ -1,16 +1,10 @@
-# routes/scheduling.py
 """
 Production Scheduling routes
 Handles display and updates for the production scheduling grid.
 """
 
 from flask import Blueprint, render_template, jsonify, request, session, redirect, url_for, flash, send_file
-# Use the updated helper functions from auth package
-from auth import (
-    require_login,
-    require_scheduling_admin, # This now checks AD group OR specific permission
-    require_scheduling_user   # This now checks AD group OR specific permission
-)
+from auth import require_login, require_scheduling_admin, require_scheduling_user
 from routes.main import validate_session
 from database import scheduling_db
 import traceback
@@ -27,25 +21,17 @@ def index():
     """Renders the main production scheduling grid page."""
     if not require_login(session):
         return redirect(url_for('main.login'))
-
-    # Use the updated check which includes specific permissions
-    # Checks for view access (user or admin group, or specific view/edit perm)
-    if not require_scheduling_user(session):
-        flash('Scheduling view privileges are required to access this module.', 'error')
+    
+    if not (require_scheduling_admin(session) or require_scheduling_user(session)):
+        flash('Scheduling privileges are required to access this module.', 'error')
         return redirect(url_for('main.dashboard'))
 
     # Fetch data from ERP joined with local projections
-    try:
-        data = scheduling_db.get_schedule_data()
-    except Exception as e:
-        flash(f'Error fetching scheduling data: {e}', 'error')
-        traceback.print_exc()
-        data = {'grid_data': [], 'fg_on_hand_split': {}, 'shipped_current_month': 0}
-
-
+    data = scheduling_db.get_schedule_data()
+    
     # Unpack the dictionary to pass its contents as separate variables to the template
     return render_template(
-        'scheduling/index.html',
+        'scheduling/index.html', 
         user=session['user'],
         schedule_data=data.get('grid_data', []),
         fg_on_hand_split=data.get('fg_on_hand_split', {}),
@@ -57,8 +43,6 @@ def index():
 @validate_session
 def update_projection():
     """API endpoint to save projection data from the grid."""
-    # Use the updated check which includes specific permissions
-    # Checks for edit access (admin group or specific edit perm)
     if not require_scheduling_admin(session):
         return jsonify({'success': False, 'message': 'Edit permission required'}), 403
 
@@ -104,8 +88,7 @@ def update_projection():
 @validate_session
 def export_xlsx():
     """API endpoint to export the visible grid data to an XLSX file."""
-    # Check if user has at least view permission
-    if not require_scheduling_user(session):
+    if not (require_scheduling_admin(session) or require_scheduling_user(session)):
         return jsonify({'success': False, 'message': 'Authentication required'}), 401
 
     try:
@@ -123,7 +106,7 @@ def export_xlsx():
 
         # Write headers
         ws.append(headers)
-
+        
         # Write data rows, attempting to convert to numbers
         for row_data in rows:
             processed_row = []
@@ -140,7 +123,7 @@ def export_xlsx():
                 else:
                     # If it's already a number (or None), append it as is
                     processed_row.append(cell_value)
-
+            
             ws.append(processed_row)
 
         # Save the workbook to a BytesIO object
