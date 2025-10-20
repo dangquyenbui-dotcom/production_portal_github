@@ -1,4 +1,4 @@
-# app.py - UPDATED to include PO Blueprint
+# app.py - UPDATED to include PO Blueprint and Auth Helpers in Jinja
 
 """
 Production Portal - Main Application
@@ -13,9 +13,15 @@ import socket
 
 # Import i18n configuration
 from i18n_config import I18nConfig, _, format_datetime_i18n, format_date_i18n
+# --- Import Auth helper functions ---
+from auth import (
+    require_admin,
+    require_user,
+    require_scheduling_admin,
+    require_scheduling_user
+)
 
 def create_app():
-    # ... (function remains unchanged) ...
     app = Flask(__name__)
 
     # Configuration
@@ -33,10 +39,15 @@ def create_app():
     app.jinja_env.filters['datetime_i18n'] = format_datetime_i18n
     app.jinja_env.filters['date_i18n'] = format_date_i18n
 
-    # Make translation function available in templates
+    # --- Make translation and AUTH functions available in templates ---
     app.jinja_env.globals['_'] = _
     app.jinja_env.globals['get_locale'] = lambda: session.get('language', 'en')
     app.jinja_env.globals['get_languages'] = I18nConfig.get_available_languages
+    app.jinja_env.globals['require_admin'] = require_admin
+    app.jinja_env.globals['require_user'] = require_user
+    app.jinja_env.globals['require_scheduling_admin'] = require_scheduling_admin
+    app.jinja_env.globals['require_scheduling_user'] = require_scheduling_user
+    # --- END making functions available ---
 
     # Register blueprints
     register_blueprints(app)

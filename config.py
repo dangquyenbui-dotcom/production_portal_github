@@ -11,39 +11,40 @@ load_dotenv()
 
 class Config:
     """Application configuration"""
-    
+
     # Flask settings
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-key-change-in-production')
     SESSION_HOURS = int(os.getenv('SESSION_HOURS', '8'))
-    
+
     # Active Directory settings
     AD_SERVER = os.getenv('AD_SERVER')
     AD_DOMAIN = os.getenv('AD_DOMAIN')
     AD_PORT = int(os.getenv('AD_PORT', '389'))
-    
+
     # Service account for AD queries
     AD_SERVICE_ACCOUNT = os.getenv('AD_SERVICE_ACCOUNT')
     AD_SERVICE_PASSWORD = os.getenv('AD_SERVICE_PASSWORD')
-    
+
     # Security Groups
-    AD_ADMIN_GROUP = os.getenv('AD_ADMIN_GROUP', 'DowntimeTracker_Admin')
+    AD_ADMIN_GROUP = os.getenv('AD_ADMIN_GROUP', 'DowntimeTracker_Admin') # Original admin group
     AD_USER_GROUP = os.getenv('AD_USER_GROUP', 'DowntimeTracker_User')
     AD_SCHEDULING_ADMIN_GROUP = os.getenv('AD_SCHEDULING_ADMIN_GROUP', 'Scheduling_Admin')
     AD_SCHEDULING_USER_GROUP = os.getenv('AD_SCHEDULING_USER_GROUP', 'Scheduling_User')
-    
+    AD_PORTAL_ADMIN_GROUP = os.getenv('AD_PORTAL_ADMIN_GROUP', 'Production_Portal_Admin') # <-- ADD THIS LINE
+
     # Base DN for searches
     AD_BASE_DN = os.getenv('AD_BASE_DN')
-    
+
     # Test mode - set to True to bypass AD and use test accounts
     TEST_MODE = os.getenv('TEST_MODE', 'False').lower() == 'true'
-    
+
     # --- Main Application Database (ProductionDB) ---
     DB_SERVER = os.getenv('DB_SERVER')
     DB_NAME = os.getenv('DB_NAME', 'ProductionDB')
     DB_USE_WINDOWS_AUTH = os.getenv('DB_USE_WINDOWS_AUTH', 'False').lower() == 'true'
     DB_USERNAME = os.getenv('DB_USERNAME')
     DB_PASSWORD = os.getenv('DB_PASSWORD')
-    
+
     # --- ERP Database (Deacom) ---
     ERP_DB_SERVER = os.getenv('ERP_DB_SERVER')
     ERP_DB_NAME = os.getenv('ERP_DB_NAME')
@@ -58,7 +59,7 @@ class Config:
     SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
     SMTP_USE_TLS = os.getenv('SMTP_USE_TLS', 'True').lower() == 'true'
     EMAIL_FROM = os.getenv('EMAIL_FROM', 'downtime@wepackitall.local')
-    
+
     EMAIL_NOTIFICATIONS = {
         'Mechanical': ['Maintenance Team', 'Facility Manager'],
         'Electrical': ['Maintenance Team', 'Facility Manager'],
@@ -71,27 +72,27 @@ class Config:
         'Planned Maintenance': ['Maintenance Team'],
         'Other': ['Production Manager', 'Facility Manager']
     }
-    
+
     @classmethod
     def validate(cls):
         """Validate required configuration"""
         errors = []
-        
+
         if not cls.TEST_MODE:
             if not cls.AD_SERVER: errors.append("AD_SERVER is required")
             if not cls.AD_DOMAIN: errors.append("AD_DOMAIN is required")
             if not cls.AD_BASE_DN: errors.append("AD_BASE_DN is required")
-        
+
         if not cls.DB_SERVER: errors.append("DB_SERVER is required")
-        
+
         if not cls.DB_USE_WINDOWS_AUTH:
             if not cls.DB_USERNAME: errors.append("DB_USERNAME is required when not using Windows Auth")
             if not cls.DB_PASSWORD: errors.append("DB_PASSWORD is required when not using Windows Auth")
-        
+
         if errors:
             print("Configuration errors:")
             for error in errors:
                 print(f"  - {error}")
             return False
-        
+
         return True

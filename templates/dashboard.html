@@ -49,6 +49,14 @@
         color: white;
     }
 
+    /* --- Style for Local Admin badge --- */
+    .badge-local-admin {
+        background: var(--accent-orange); /* Example: Orange for local admin */
+        color: white;
+    }
+    /* --- End Style for Local Admin badge --- */
+
+
     .user-info {
         background: var(--gradient-subtle);
         border: 1px solid var(--border-primary);
@@ -96,6 +104,21 @@
         color: var(--accent-blue);
         font-weight: 600;
     }
+    /* --- Highlight for Portal Admin Group --- */
+    .group-tag.portal-admin {
+        background: var(--gradient-primary);
+        color: white;
+        font-weight: 600;
+        border: none;
+    }
+    /* --- Highlight for Local Admin Group --- */
+    .group-tag.local-admin {
+        background: var(--accent-orange);
+        color: white;
+        font-weight: 600;
+        border: none;
+    }
+
 
     /* Stats Grid */
     .stats-grid {
@@ -248,10 +271,21 @@
 
 <div class="welcome-card">
     <h2>Welcome, {{ user.display_name }}!
-        {% if user.is_admin %}
-        <span class="badge badge-admin">Administrator</span>
-        {% else %}
-        <span class="badge badge-user">User</span>
+        {# --- Updated Badge Logic --- #}
+        {% if user.is_portal_admin %}
+            <span class="badge badge-admin">Administrator</span> {# Portal Admin is highest #}
+        {% elif user.is_admin %}
+             <span class="badge badge-admin">Downtime Admin</span>
+        {% elif user.is_scheduling_admin %}
+             <span class="badge badge-admin">Scheduling Admin</span>
+        {% elif user.is_scheduling_user %}
+            <span class="badge badge-user">Scheduling User</span>
+        {% elif user.is_user %}
+            <span class="badge badge-user">Downtime User</span>
+        {% endif %}
+        {# --- Add badge for local admin --- #}
+        {% if user.username == 'production_portal_admin' %}
+             <span class="badge badge-local-admin">Local Admin</span>
         {% endif %}
     </h2>
 
@@ -267,31 +301,51 @@
         <div class="info-row">
             <div class="info-label">Access Level:</div>
             <div class="info-value">
-                {% if user.is_admin %}
+                {# --- Updated Access Level Description --- #}
+                {% if user.is_portal_admin %}
                     Full Administrative Access
+                {% elif user.is_admin and user.is_scheduling_admin %}
+                    Downtime & Scheduling Admin
+                {% elif user.is_admin %}
+                    Downtime Admin Only
                 {% elif user.is_scheduling_admin %}
-                    Scheduling Administrator
+                    Scheduling Admin Only
                 {% elif user.is_scheduling_user %}
                     Scheduling Read-Only
-                {% else %}
+                {% elif user.is_user %}
                     Downtime Entry Only
+                {% else %}
+                    No specific role assigned
                 {% endif %}
             </div>
         </div>
         <div class="info-row">
             <div class="info-label">AD Groups:</div>
             <div class="info-value">
+                {# --- START: Updated Group Display Logic --- #}
                 {% set relevant_groups = [
                     config.AD_ADMIN_GROUP,
                     config.AD_USER_GROUP,
                     config.AD_SCHEDULING_ADMIN_GROUP,
-                    config.AD_SCHEDULING_USER_GROUP
+                    config.AD_SCHEDULING_USER_GROUP,
+                    config.AD_PORTAL_ADMIN_GROUP
                 ] %}
-                {% for group in user.groups %}
-                    {% if group in relevant_groups %}
-                        <span class="group-tag highlight">{{ group }}</span>
-                    {% endif %}
-                {% endfor %}
+                {% if user.groups %}
+                    {% for group in user.groups %}
+                        {% set group_class = 'group-tag' %}
+                        {% if group == config.AD_PORTAL_ADMIN_GROUP %}
+                            {% set group_class = group_class ~ ' portal-admin' %}
+                        {% elif group == 'LocalAdmin' %}
+                            {% set group_class = group_class ~ ' local-admin' %}
+                        {% elif group in relevant_groups %}
+                             {% set group_class = group_class ~ ' highlight' %}
+                        {% endif %}
+                        <span class="{{ group_class }}">{{ group }}</span>
+                    {% endfor %}
+                {% else %}
+                     <span style="color: var(--text-tertiary);">No groups found.</span>
+                {% endif %}
+                {# --- END: Updated Group Display Logic --- #}
             </div>
         </div>
     </div>
@@ -317,105 +371,90 @@
 </div>
 
 <div class="actions-grid">
-    {# Admin Panel: Only for DowntimeTracker_Admin #}
-    {% if user.is_admin %}
+    {# --- START: Updated Admin Panel Access --- #}
+    {# Admin Panel: Only for DowntimeTracker_Admin, Production_Portal_Admin or Local Admin #}
+    {% if require_admin(session) %} {# Use the updated helper function #}
     <a href="/admin" class="action-card admin">
         <div class="action-icon">⚙️</div>
         <div class="action-title">Admin Panel</div>
         <div class="action-desc">Manage facilities, lines, and settings</div>
     </a>
     {% endif %}
+    {# --- END: Updated Admin Panel Access --- #}
 
-    {# Scheduling: For Scheduling_Admin and Scheduling_User #}
-    {% if user.is_scheduling_admin or user.is_scheduling_user %}
+    {# --- START: Updated Scheduling Access --- #}
+    {# Scheduling: For Scheduling_Admin, Scheduling_User, Portal_Admin or Local Admin #}
+    {% if require_scheduling_admin(session) or require_scheduling_user(session) %} {# Use the updated helper functions #}
     <a href="{{ url_for('scheduling.index') }}" class="action-card admin">
         <div class="action-icon">🗓️</div>
         <div class="action-title">Scheduling</div>
         <div class="action-desc">Manage production projections for open orders.</div>
     </a>
     {% endif %}
+    {# --- END: Updated Scheduling Access --- #}
 
-    {# BOM Viewer Card - For Admins and Scheduling users #}
-    {% if user.is_admin or user.is_scheduling_admin or user.is_scheduling_user %}
+    {# --- START: Updated BOM/PO/MRP/Sales Access --- #}
+    {# These viewers: For Admins (any type) and Scheduling users #}
+    {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
     <a href="{{ url_for('bom.view_boms') }}" class="action-card">
         <div class="action-icon">📜</div>
         <div class="action-title">BOM Viewer</div>
         <div class="action-desc">Browse Bill of Materials data from the ERP.</div>
     </a>
-    {% endif %}
-
-    {# NEW: PO Viewer Card - For Admins and Scheduling users #}
-    {% if user.is_admin or user.is_scheduling_admin or user.is_scheduling_user %}
     <a href="{{ url_for('po.view_pos') }}" class="action-card">
         <div class="action-icon">📦</div>
         <div class="action-title">PO Viewer</div>
         <div class="action-desc">Browse open Purchase Orders from the ERP.</div>
     </a>
-    {% endif %}
-
-    {# NEW: MRP Viewer Card - For Admins and Scheduling admins #}
-    {% if user.is_admin or user.is_scheduling_admin %}
     <a href="{{ url_for('mrp.view_mrp') }}" class="action-card admin">
         <div class="action-icon">🧠</div>
         <div class="action-title">MRP Suggestions</div>
         <div class="action-desc">View production suggestions based on material availability.</div>
     </a>
-    {% endif %}
-
-    {# NEW: MRP Customer Summary Card #}
-    {% if user.is_admin or user.is_scheduling_admin or user.is_scheduling_user %}
-    <a href="{{ url_for('mrp.customer_summary') }}" class="action-card admin">
+     <a href="{{ url_for('mrp.customer_summary') }}" class="action-card admin">
         <div class="action-icon">📈</div>
         <div class="action-title">MRP Customer Summary</div>
         <div class="action-desc">View order status and shortages by customer.</div>
     </a>
-    {% endif %}
-
-    {# NEW: Purchasing Shortage Report Card #}
-    {% if user.is_admin or user.is_scheduling_admin or user.is_scheduling_user %}
-    <a href="{{ url_for('mrp.buyer_view') }}" class="action-card admin">
+     <a href="{{ url_for('mrp.buyer_view') }}" class="action-card admin">
         <div class="action-icon">🛒</div>
         <div class="action-title">Purchasing Shortage Report</div>
         <div class="action-desc">Consolidated view of all component shortfalls.</div>
     </a>
-    {% endif %}
-
-    {# NEW: Customer Analysis Card - For Admins and Scheduling users #}
-    {% if user.is_admin or user.is_scheduling_admin or user.is_scheduling_user %}
-    <a href="{{ url_for('sales.customer_analysis') }}" class="action-card">
+     <a href="{{ url_for('sales.customer_analysis') }}" class="action-card">
         <div class="action-icon">🧑‍💼</div>
         <div class="action-title">Customer Analysis</div>
         <div class="action-desc">Review customer performance and sales data.</div>
     </a>
+     <a href="{{ url_for('jobs.view_open_jobs') }}" class="action-card">
+        <div class="action-icon">💼</div>
+        <div class="action-title">Open Jobs</div>
+        <div class="action-desc">View live open production jobs.</div>
+    </a>
     {% endif %}
+    {# --- END: Updated BOM/PO/MRP/Sales Access --- #}
 
-    {# Report Downtime: For DowntimeTracker_Admin and DowntimeTracker_User #}
-    {% if user.is_admin or user.is_user %}
+    {# --- START: Updated Downtime Access --- #}
+    {# Report Downtime: For DowntimeTracker_Admin, DowntimeTracker_User, Portal_Admin or Local Admin #}
+    {% if require_admin(session) or require_user(session) %} {# Use the updated helper functions #}
     <a href="/downtime" class="action-card">
         <div class="action-icon">📝</div>
         <div class="action-title">Report Downtime</div>
         <div class="action-desc">Record production downtime events</div>
     </a>
     {% endif %}
+    {# --- END: Updated Downtime Access --- #}
 
-    {# View Reports: Only for DowntimeTracker_Admin #}
-    {% if user.is_admin %}
-    {# ***** ENSURE THIS LINE USES reports.hub ***** #}
+    {# --- START: Updated Reports Access --- #}
+    {# View Reports: Only for Admins (any type) #}
+    {% if require_admin(session) %} {# Use the updated helper function #}
     <a href="{{ url_for('reports.hub') }}" class="action-card">
         <div class="action-icon">📊</div>
         <div class="action-title">View Reports</div>
         <div class="action-desc">View downtime reports and analytics</div>
     </a>
     {% endif %}
-
-    {# Open Jobs: For Admins and Scheduling users #}
-    {% if user.is_admin or user.is_scheduling_admin or user.is_scheduling_user %}
-    <a href="{{ url_for('jobs.view_open_jobs') }}" class="action-card">
-        <div class="action-icon">💼</div>
-        <div class="action-title">Open Jobs</div>
-        <div class="action-desc">View live open production jobs.</div>
-    </a>
-    {% endif %}
+    {# --- END: Updated Reports Access --- #}
 
     <a href="/logout" class="action-card logout">
         <div class="action-icon">🚪</div>
