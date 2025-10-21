@@ -4,6 +4,7 @@ Configuration settings for Production Portal
 Reads sensitive information from environment variables
 *** ADDED import os ***
 *** MODIFIED AAD_SCOPES default ***
+*** ADDED SSL Config ***
 """
 
 import os # <-- Ensure this is still here
@@ -57,6 +58,11 @@ class Config:
     ERP_DB_DRIVER = os.getenv('ERP_DB_DRIVER', 'ODBC Driver 17 for SQL Server')
     ERP_DB_TIMEOUT = int(os.getenv('ERP_DB_TIMEOUT', '30'))
 
+    # --- ADDED: SSL Certificate Paths ---
+    SSL_CERT_PATH = os.getenv('SSL_CERT_PATH', 'cert.pem')
+    SSL_KEY_PATH = os.getenv('SSL_KEY_PATH', 'key.pem')
+    # --- END SSL ---
+
     # Email settings (Optional)
     SMTP_SERVER = os.getenv('SMTP_SERVER', 'mail.wepackitall.local')
     SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
@@ -102,6 +108,11 @@ class Config:
         if not cls.ERP_DB_NAME: errors.append("ERP_DB_NAME is required")
         if not cls.ERP_DB_USERNAME: errors.append("ERP_DB_USERNAME is required")
         if not cls.ERP_DB_PASSWORD: errors.append("ERP_DB_PASSWORD is required")
+
+        # --- ADDED: SSL File Validation ---
+        if not os.path.exists(cls.SSL_CERT_PATH): errors.append(f"SSL_CERT_PATH not found at '{cls.SSL_CERT_PATH}'")
+        if not os.path.exists(cls.SSL_KEY_PATH): errors.append(f"SSL_KEY_PATH not found at '{cls.SSL_KEY_PATH}'")
+        # --- END SSL ---
 
         if errors:
             print("Configuration errors:")

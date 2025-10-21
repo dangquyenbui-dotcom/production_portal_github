@@ -1,6 +1,7 @@
 # app.py - UPDATED to include PO Blueprint and Auth Helpers in Jinja
 # *** ADDED DETAILED LOGGING FOR LDAP3 ***
 # *** REMOVED Config.AD_DOMAIN reference ***
+# *** MODIFIED TO RUN WITH HTTPS ***
 
 """
 Production Portal - Main Application
@@ -22,6 +23,7 @@ import os
 from datetime import timedelta
 from config import Config
 import socket
+import ssl # <-- ADD THIS IMPORT FOR SSL
 
 # Import i18n configuration
 from i18n_config import I18nConfig, _, format_datetime_i18n, format_date_i18n
@@ -181,6 +183,12 @@ if __name__ == '__main__':
 
     local_ip = get_local_ip() #
 
+    # --- ADDED: Validate config *before* trying to use paths ---
+    if not Config.validate():
+        print("❌ Exiting due to configuration errors.")
+        sys.exit(1)
+    # --- END VALIDATION ---
+
     # Print Configuration Summary
     print("\n" + "="*50) #
     print("PRODUCTION PORTAL v2.1.0 - CONFIGURATION") #
@@ -193,6 +201,10 @@ if __name__ == '__main__':
     print(f"AAD Tenant ID: {Config.AAD_TENANT_ID if not Config.TEST_MODE else 'N/A'}")
     print(f"AAD Client ID: {Config.AAD_CLIENT_ID if not Config.TEST_MODE else 'N/A'}")
     print(f"Languages: English, Spanish") #
+    # --- ADDED: SSL Info ---
+    print(f"SSL Cert: {Config.SSL_CERT_PATH}")
+    print(f"SSL Key: {Config.SSL_KEY_PATH}")
+    # --- END SSL ---
     print("="*50 + "\n") #
 
     # Run connection tests
@@ -201,21 +213,40 @@ if __name__ == '__main__':
     # Create Flask App
     app = create_app() #
 
+    # --- ADDED: SSL Context ---
+    # For development server with self-signed certs or certs without a proper chain
+    # For production, consider using a production-grade server like Gunicorn/Waitress behind Nginx/Apache
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    try:
+        context.load_cert_chain(Config.SSL_CERT_PATH, Config.SSL_KEY_PATH)
+        print("✅ SSL context loaded successfully.")
+    except Exception as e:
+        print(f"❌ Failed to load SSL context: {e}")
+        print("   Ensure SSL_CERT_PATH and SSL_KEY_PATH in .env are correct.")
+        print("   Continuing without HTTPS...")
+        context = None # Fallback to HTTP if context fails
+    # --- END SSL Context ---
+
     # Print Server Access URLs
+    protocol = "https" if context else "http" # <-- Use protocol variable
     print("\n" + "="*60) #
-    print("🚀 SERVER STARTING (HTTP) - ACCESS URLS:") #
+    print(f"🚀 SERVER STARTING ({protocol.upper()}) - ACCESS URLS:") # <-- Update print
     print("="*60) #
-    print(f"Local:        http://localhost:5000") #
-    print(f"Network:      http://{local_ip}:5000") #
+    print(f"Local:        {protocol}://localhost:5000") # <-- Update URL
+    print(f"Network:      {protocol}://{local_ip}:5000") # <-- Update URL
     print("="*60) #
     print("\n📝 Make sure:") #
     print("  1. Windows Firewall allows port 5000") #
     print("  2. No antivirus blocking the connection") #
+    if protocol == "https": # <-- Add browser warning for HTTPS
+        print("  3. Your browser may warn about the self-signed certificate. Proceed if expected.")
     print("\nPress CTRL+C to stop the server\n") #
 
-    # Run the Flask development server
+    # --- MODIFIED: Run the Flask development server with SSL ---
     app.run( #
         host='0.0.0.0', # Listen on all network interfaces
         port=5000, # Standard Flask dev port
-        debug=True # Enables detailed error messages and auto-reloading
+        debug=True, # Enables detailed error messages and auto-reloading
+        ssl_context=context # Pass the SSL context
     )
+    # --- END MODIFICATION ---
