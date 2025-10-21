@@ -1,42 +1,40 @@
 # routes/reports.py
 """
 Reporting routes for generating and viewing system reports.
+UPDATED: Granted Scheduling_User access to view reports.
+ADDED: Debug logging to hub route for permission check.
 """
-# <<< MODIFICATION: Added send_file AND current_app
 from flask import (
     Blueprint, render_template, redirect, url_for, session, request, flash, send_file,
     current_app
 )
-from auth import require_login, require_admin
+# --- MODIFIED: Import require_scheduling_user ---
+from auth import require_login, require_admin, require_scheduling_admin, require_scheduling_user
 from routes.main import validate_session
 from database import facilities_db, lines_db, get_erp_service
 from database.reports import reports_db
 from datetime import datetime, timedelta
 import traceback
 from collections import OrderedDict
-import io # <<< MODIFICATION: Added io
-from utils.pdf_generator import generate_coc_pdf # <<< MODIFICATION: Import new PDF generator
+import io
+from utils.pdf_generator import generate_coc_pdf
+import json # <-- Added for pretty printing debug info
 
 # Helper function
 def safe_float(value, default=0.0):
-    """Safely convert value to float, handling None and potential errors."""
     if value is None: return default
     try: return float(value)
     except (TypeError, ValueError): return default
 
 # Helper function to format dates
-def _format_date(date_obj, date_format='%m/%d/%Y', default='N/A'): # Format: MM/DD/YYYY
-    """Safely format a datetime object, handling None."""
-    if date_obj is None:
-        return default
-    try:
-        return date_obj.strftime(date_format)
-    except AttributeError:
-        return default
+def _format_date(date_obj, date_format='%m/%d/%Y', default='N/A'):
+    if date_obj is None: return default
+    try: return date_obj.strftime(date_format)
+    except AttributeError: return default
 
-# ***** HELPER FUNCTION for CoC Report (Unchanged from last step) *****
+# Helper function for CoC Report
 def _get_single_job_details(job_number_str):
-    """Fetches and processes data for a single job for the CoC report."""
+    # ... (function content remains the same - not shown for brevity) ...
     if not job_number_str:
         return None
 
@@ -63,7 +61,7 @@ def _get_single_job_details(job_number_str):
 
     finish_job_entries = []
     other_fifo_entries = []
-    
+
     fi_id_to_details_map = {
         row.get('fi_id'): {
             'lot_number': row.get('lot_number', ''),
@@ -88,14 +86,14 @@ def _get_single_job_details(job_number_str):
     for row in other_fifo_entries:
         part_num = row.get('part_number', '')
         part_desc = row.get('part_description', '')
-        lot_num = row.get('lot_number', '') 
-        exp_date = _format_date(row.get('fi_expires')) 
+        lot_num = row.get('lot_number', '')
+        exp_date = _format_date(row.get('fi_expires'))
         action = row.get('fi_action')
         quantity = safe_float(row.get('fi_quant'))
 
-        if not part_num: continue 
+        if not part_num: continue
 
-        agg_key = (part_num, lot_num, exp_date) 
+        agg_key = (part_num, lot_num, exp_date)
 
         if agg_key not in job_data['aggregated_transactions']:
             job_data['aggregated_transactions'][agg_key] = {
@@ -117,8 +115,8 @@ def _get_single_job_details(job_number_str):
         elif action == 'De-issue':
             job_data['aggregated_transactions'][agg_key]['Ending Inventory'] += quantity
 
-    relieve_pointer = 0 
-    processed_relieve_ids = set() 
+    relieve_pointer = 0
+    processed_relieve_ids = set()
 
     for fj_entry in finish_job_entries:
         fj_timestamp = fj_entry['timestamp']
@@ -128,7 +126,7 @@ def _get_single_job_details(job_number_str):
             relieve_timestamp = relieve_row.get('f2_recdate')
             relieve_id = relieve_row.get('f2_id')
 
-            if relieve_id is None: 
+            if relieve_id is None:
                 print(f"Warning: Relieve transaction missing unique ID: {relieve_row}")
                 continue
 
@@ -137,14 +135,14 @@ def _get_single_job_details(job_number_str):
                     part_num = relieve_row.get('part_number', '')
                     part_desc = relieve_row.get('part_description', '')
                     quantity = safe_float(relieve_row.get('net_quantity'))
-                    
+
                     linked_fi_id = relieve_row.get('f2_fiid')
                     details = fi_id_to_details_map.get(linked_fi_id, {'lot_number': '', 'exp_date': 'N/A'})
                     lot_num = details['lot_number']
                     exp_date = details['exp_date']
 
-                    if not part_num: continue 
-                    
+                    if not part_num: continue
+
                     agg_key = (part_num, lot_num, exp_date)
 
                     if agg_key not in job_data['aggregated_transactions']:
@@ -163,7 +161,7 @@ def _get_single_job_details(job_number_str):
                          job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
 
                     job_data['aggregated_transactions'][agg_key]['Packaged Qty'] += quantity
-                    processed_relieve_ids.add(relieve_id) 
+                    processed_relieve_ids.add(relieve_id)
 
                 relieve_pointer = i + 1
 
@@ -172,7 +170,7 @@ def _get_single_job_details(job_number_str):
 
     for agg_key, summary in job_data['aggregated_transactions'].items():
         issued = summary.get('Starting Lot Qty', 0.0)
-        relieve = summary.get('Packaged Qty', 0.0) 
+        relieve = summary.get('Packaged Qty', 0.0)
         deissue = summary.get('Ending Inventory', 0.0)
         yield_cost = issued - relieve - deissue
         summary['Yield Cost/Scrap'] = yield_cost
@@ -180,11 +178,11 @@ def _get_single_job_details(job_number_str):
 
     job_data['aggregated_list'] = [
         summary for summary in job_data['aggregated_transactions'].values()
-        if not summary.get('part_number', '').startswith('0800-') 
+        if not summary.get('part_number', '').startswith('0800-')
            and summary.get('part_number', '') != job_data['part_number']
     ]
     job_data['aggregated_list'].sort(key=lambda x: (
-        x.get('part_number', ''), 
+        x.get('part_number', ''),
         x.get('lot_number', ''),
         x.get('exp_date', '')
     ))
@@ -198,34 +196,51 @@ def _get_single_job_details(job_number_str):
                 'lots': []
             }
         grouped_list[part_num]['lots'].append(summary)
-    
+
     job_data['grouped_list'] = grouped_list
 
     return job_data
-# ***** END HELPER FUNCTION *****
 
 
 reports_bp = Blueprint('reports', __name__, url_prefix='/reports')
 
+# Define required roles for report viewing
+REPORT_VIEW_ROLES = lambda s: require_admin(s) or require_scheduling_admin(s) or require_scheduling_user(s)
+
 @reports_bp.route('/')
-# ... (hub route is unchanged) ...
+@validate_session
 def hub():
     if not require_login(session):
         return redirect(url_for('main.login'))
-    if not require_admin(session):
-        flash('Admin privileges are required to view reports.', 'error')
+
+    # --- ADDED DEBUGGING ---
+    print("\n[DEBUG] Accessing /reports/hub")
+    user_info = session.get('user')
+    if user_info:
+        print(f"[DEBUG] User session data: {json.dumps(user_info, indent=2)}")
+        has_access = REPORT_VIEW_ROLES(session)
+        print(f"[DEBUG] REPORT_VIEW_ROLES check result: {has_access}")
+    else:
+        print("[DEBUG] No user info found in session.")
+    # --- END DEBUGGING ---
+
+    if not REPORT_VIEW_ROLES(session):
+        print("[DEBUG] Access denied to /reports/hub") # Added debug
+        flash('Report viewing privileges are required.', 'error')
         return redirect(url_for('main.dashboard'))
-    return render_template('reports/hub.html', user=session['user'])
+
+    print("[DEBUG] Access granted to /reports/hub") # Added debug
+    return render_template('reports/hub.html', user=session.get('user'))
 
 @reports_bp.route('/downtime-summary')
-# ... (downtime_summary route is unchanged) ...
+@validate_session
 def downtime_summary():
-    if not require_login(session):
-        return redirect(url_for('main.login'))
-    if not require_admin(session):
-        flash('Admin privileges are required to view reports.', 'error')
+    if not require_login(session): return redirect(url_for('main.login'))
+    if not REPORT_VIEW_ROLES(session):
+        flash('Report viewing privileges are required.', 'error')
         return redirect(url_for('main.dashboard'))
 
+    # ... (rest of the function remains the same) ...
     today = datetime.now()
     start_date_str = request.args.get('start_date', (today - timedelta(days=7)).strftime('%Y-%m-%d'))
     end_date_str = request.args.get('end_date', today.strftime('%Y-%m-%d'))
@@ -244,31 +259,38 @@ def downtime_summary():
 
     return render_template(
         'reports/downtime_summary.html',
-        user=session['user'], report_data=report_data,
+        user=session.get('user'), report_data=report_data,
         filters={'start_date': start_date_str, 'end_date': end_date_str, 'facility_id': facility_id, 'line_id': line_id},
         facilities=facilities, lines=lines
     )
 
+
 @reports_bp.route('/shipment-forecast')
-# ... (shipment_forecast route is unchanged) ...
+@validate_session
 def shipment_forecast():
-    if not require_login(session) or not require_admin(session):
-        flash('Admin privileges are required to view reports.', 'error')
+    if not require_login(session): return redirect(url_for('main.login'))
+    if not REPORT_VIEW_ROLES(session):
+        flash('Report viewing privileges are required.', 'error')
         return redirect(url_for('main.dashboard'))
+
+    # ... (rest of the function remains the same) ...
     try:
         forecast_data = reports_db.get_shipment_forecast()
     except Exception as e:
         flash(f'An error occurred while generating the forecast: {e}', 'error')
         forecast_data = {'month_name': datetime.now().strftime('%B %Y'), 'likely_total_value': 0, 'at_risk_total_value': 0, 'likely_orders': [], 'at_risk_orders': []}
-    return render_template('reports/shipment_forecast.html', user=session['user'], forecast=forecast_data)
+    return render_template('reports/shipment_forecast.html', user=session.get('user'), forecast=forecast_data)
+
 
 @reports_bp.route('/coc', methods=['GET'])
 @validate_session
 def coc_report():
-    if not require_admin(session):
-        flash('Admin privileges are required to view this report.', 'error')
+    if not require_login(session): return redirect(url_for('main.login'))
+    if not REPORT_VIEW_ROLES(session):
+        flash('Report viewing privileges are required.', 'error')
         return redirect(url_for('main.dashboard'))
 
+    # ... (rest of the function remains the same) ...
     job_number_param = request.args.get('job_number', '').strip()
     job_details = None
     error_message = None
@@ -287,45 +309,38 @@ def coc_report():
 
     return render_template(
         'reports/coc.html',
-        user=session['user'],
+        user=session.get('user'),
         job_number=job_number_param,
         job_details=job_details,
         error_message=error_message
     )
 
-# <<< MODIFICATION: Added new route for PDF export
+
 @reports_bp.route('/coc/pdf', methods=['GET'])
 @validate_session
 def coc_report_pdf():
-    """
-    Generates and serves a PDF version of the CoC report.
-    """
-    if not require_admin(session):
-        flash('Admin privileges are required to export reports.', 'error')
+    if not require_login(session): return redirect(url_for('main.login'))
+    if not REPORT_VIEW_ROLES(session):
+        flash('Report viewing privileges are required.', 'error')
         return redirect(url_for('main.dashboard'))
 
+    # ... (rest of the function remains the same) ...
     job_number_param = request.args.get('job_number', '').strip()
     if not job_number_param:
         flash('A Job Number is required to generate a PDF.', 'error')
         return redirect(url_for('reports.coc_report'))
 
     try:
-        # Get the same data as the web page
         job_details = _get_single_job_details(job_number_param)
-        
+
         if not job_details or 'error' in job_details:
             error_message = job_details.get('error', 'Job not found')
             flash(f'Could not generate PDF: {error_message}', 'error')
             return redirect(url_for('reports.coc_report', job_number=job_number_param))
-        
-        # <<< MODIFICATION: Get app root path while in context
+
         app_root_path = current_app.root_path
-        
-        # Generate the PDF
-        # <<< MODIFICATION: Pass the path to the generator
         pdf_buffer, filename = generate_coc_pdf(job_details, app_root_path)
-        
-        # Send the PDF as a file download
+
         return send_file(
             pdf_buffer,
             as_attachment=True,

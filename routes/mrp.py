@@ -1,10 +1,12 @@
 # routes/mrp.py
 """
 MRP (Material Requirements Planning) Viewer routes.
+UPDATED: Granted Scheduling_User access to main MRP view.
 """
 
 from flask import Blueprint, render_template, session, redirect, url_for, flash, request, jsonify, send_file
-from auth import require_login
+# --- MODIFIED: Import require_scheduling_user ---
+from auth import require_login, require_admin, require_scheduling_admin, require_scheduling_user
 from routes.main import validate_session
 # Correctly imports the MRP service, which internally uses the ERP service
 from database.mrp_service import mrp_service
@@ -18,8 +20,9 @@ mrp_bp = Blueprint('mrp', __name__, url_prefix='/mrp')
 @validate_session
 def view_mrp():
     """Renders the main MRP results page."""
-    if not (session.get('user', {}).get('is_admin') or session.get('user', {}).get('is_scheduling_admin')):
-        flash('MRP access is restricted to administrators and scheduling admins.', 'error')
+    # --- MODIFIED: Allow Scheduling_User access ---
+    if not (require_scheduling_admin(session) or require_scheduling_user(session)):
+        flash('MRP access requires Scheduling Admin or Scheduling User privileges.', 'error')
         return redirect(url_for('main.dashboard'))
 
     try:
@@ -30,28 +33,29 @@ def view_mrp():
 
     return render_template(
         'mrp/index.html',
-        user=session['user'],
+        user=session.get('user'), # Pass user safely
         mrp_results=mrp_results
     )
 
 @mrp_bp.route('/summary')
 @validate_session
 def customer_summary():
-    """Renders the customer-specific MRP summary page with full filtering."""
-    if not (session.get('user', {}).get('is_admin') or session.get('user', {}).get('is_scheduling_admin')):
-        flash('MRP access is restricted.', 'error')
+    """Renders the customer-specific MRP summary page."""
+    # Access restricted to Scheduling Admins only as per matrix
+    if not require_scheduling_admin(session):
+        flash('MRP Customer Summary access is restricted to Scheduling Admins.', 'error')
         return redirect(url_for('main.dashboard'))
 
     try:
         mrp_results = mrp_service.calculate_mrp_suggestions()
-        all_customers = sorted(list(set(r['sales_order']['Customer Name'] for r in mrp_results)))
+        all_customers = sorted(list(set(r['sales_order']['Customer Name'] for r in mrp_results if r.get('sales_order') and r['sales_order'].get('Customer Name')))) # Safer access
 
         selected_customer = request.args.get('customer')
         summary_data = None
         orders_for_template = []
 
         if selected_customer:
-            customer_orders = [r for r in mrp_results if r['sales_order']['Customer Name'] == selected_customer]
+            customer_orders = [r for r in mrp_results if r.get('sales_order') and r['sales_order'].get('Customer Name') == selected_customer] # Safer access
             summary_data = mrp_service.get_customer_summary(customer_orders)
             if summary_data:
                 orders_for_template = summary_data.get('orders', [])
@@ -63,7 +67,7 @@ def customer_summary():
         summary_data = None
         orders_for_template = []
 
-    filters = {
+    filters = { # Keep filters even if no customer selected
         'bu': request.args.get('bu'),
         'fg': request.args.get('fg'),
         'due_ship': request.args.get('due_ship'),
@@ -72,7 +76,7 @@ def customer_summary():
 
     return render_template(
         'mrp/summary.html',
-        user=session['user'],
+        user=session.get('user'),
         customers=all_customers,
         selected_customer=selected_customer,
         summary=summary_data,
@@ -84,9 +88,8 @@ def customer_summary():
 @validate_session
 def buyer_view():
     """Renders a consolidated view of all component shortages for buyers."""
-    if not (session.get('user', {}).get('is_admin')
-            or session.get('user', {}).get('is_scheduling_admin')
-            or session.get('user', {}).get('is_scheduling_user')):
+    # Access check: Includes Scheduling User and Admins (already correct)
+    if not (require_scheduling_admin(session) or require_scheduling_user(session)):
         flash('Purchasing access is required to view this page.', 'error')
         return redirect(url_for('main.dashboard'))
 
@@ -101,7 +104,7 @@ def buyer_view():
 
     return render_template(
         'mrp/buyer_view.html',
-        user=session['user'],
+        user=session.get('user'),
         shortages=shortages,
         customers=customers
     )
@@ -110,9 +113,8 @@ def buyer_view():
 @validate_session
 def export_shortages_xlsx():
     """API endpoint to export the consolidated shortages data to an XLSX file."""
-    if not (session.get('user', {}).get('is_admin')
-            or session.get('user', {}).get('is_scheduling_admin')
-            or session.get('user', {}).get('is_scheduling_user')):
+    # Access check: Includes Scheduling User and Admins (already correct)
+    if not (require_scheduling_admin(session) or require_scheduling_user(session)):
         return jsonify({'success': False, 'message': 'Authentication required'}), 401
 
     try:
@@ -129,7 +131,15 @@ def export_shortages_xlsx():
         ws.append(headers)
 
         for row_data in rows:
-            ws.append(row_data)
+            processed_row = []
+            for item in row_data:
+                try:
+                    num_val = float(item.replace(',', ''))
+                    processed_row.append(num_val)
+                except (ValueError, TypeError):
+                    processed_row.append(item)
+            ws.append(processed_row)
+
 
         output = BytesIO()
         wb.save(output)
@@ -153,8 +163,9 @@ def export_shortages_xlsx():
 @validate_session
 def export_mrp_xlsx():
     """API endpoint to export the visible MRP data to an XLSX file."""
-    if not (session.get('user', {}).get('is_admin') or session.get('user', {}).get('is_scheduling_admin')):
-        return jsonify({'success': False, 'message': 'Authentication required'}), 401
+    # --- MODIFIED: Check broadened to include Scheduling User for export ---
+    if not (require_scheduling_admin(session) or require_scheduling_user(session)):
+        return jsonify({'success': False, 'message': 'Scheduling privileges required for this export'}), 403
 
     try:
         data = request.get_json()
@@ -170,14 +181,22 @@ def export_mrp_xlsx():
         ws.append(headers)
 
         for row_data in rows:
-            ws.append(row_data)
+            processed_row = []
+            for item in row_data:
+                try:
+                    num_val = float(item.replace(',', ''))
+                    processed_row.append(num_val)
+                except (ValueError, TypeError):
+                    processed_row.append(item)
+            ws.append(processed_row)
+
 
         output = BytesIO()
         wb.save(output)
         output.seek(0)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"mrp_export_{timestamp}.xlsx" # Corrected filename typo
+        filename = f"mrp_export_{timestamp}.xlsx"
 
         return send_file(
             output,
