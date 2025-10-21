@@ -1,6 +1,7 @@
 # app.py - UPDATED to include PO Blueprint and Auth Helpers in Jinja
 # *** ADDED DETAILED LOGGING FOR LDAP3 ***
 # *** REMOVED Config.AD_DOMAIN reference ***
+# *** ADDED SSL Context handling for app.run ***
 
 """
 Production Portal - Main Application
@@ -22,6 +23,7 @@ import os
 from datetime import timedelta
 from config import Config
 import socket
+import ssl # <-- Import ssl module
 
 # Import i18n configuration
 from i18n_config import I18nConfig, _, format_datetime_i18n, format_date_i18n
@@ -92,6 +94,8 @@ def register_blueprints(app):
     from routes.admin.shifts import admin_shifts_bp
     from routes.admin.users import admin_users_bp
     from routes.admin.capacity import admin_capacity_bp
+    # --- ADDED: Import Permissions Blueprint ---
+    from routes.admin.permissions import admin_permissions_bp
 
     # Register blueprints
     app.register_blueprint(main_bp)
@@ -114,7 +118,10 @@ def register_blueprints(app):
     app.register_blueprint(admin_shifts_bp, url_prefix='/admin')
     app.register_blueprint(admin_users_bp, url_prefix='/admin')
     app.register_blueprint(admin_capacity_bp, url_prefix='/admin')
+    # --- ADDED: Register Permissions Blueprint ---
+    app.register_blueprint(admin_permissions_bp, url_prefix='/admin')
 # ***** END ENSURE THIS FUNCTION IS CORRECT *****
+
 
 def initialize_database():
     """Initialize database connection and verify tables"""
@@ -149,7 +156,7 @@ def get_local_ip():
 def test_services():
     """Test all service connections on startup"""
     print("\n" + "="*60) #
-    print("PRODUCTION PORTAL v2.1.0 - STARTUP DIAGNOSTICS") #
+    print(f"PRODUCTION PORTAL v{Config.APP_VERSION if hasattr(Config, 'APP_VERSION') else '?.?.?'} - STARTUP DIAGNOSTICS") # Use version if exists
     print("="*60) #
 
     from database.connection import DatabaseConnection #
@@ -175,6 +182,11 @@ def test_services():
     print("="*60 + "\n") #
 
 if __name__ == '__main__':
+    # Validate configuration first
+    if not Config.validate():
+        print("❌ Configuration validation failed. Please check your .env file.")
+        sys.exit(1) # Exit if config is invalid
+
     # Ensure directories exist
     os.makedirs('static', exist_ok=True) #
     os.makedirs('templates', exist_ok=True) #
@@ -183,15 +195,20 @@ if __name__ == '__main__':
 
     # Print Configuration Summary
     print("\n" + "="*50) #
-    print("PRODUCTION PORTAL v2.1.0 - CONFIGURATION") #
+    print(f"PRODUCTION PORTAL v{Config.APP_VERSION if hasattr(Config, 'APP_VERSION') else '?.?.?'} - CONFIGURATION") # Use version if exists
     print("="*50) #
     print(f"Mode: {'TEST' if Config.TEST_MODE else 'PRODUCTION'}") #
     print(f"Database: {Config.DB_SERVER}/{Config.DB_NAME}") #
     # *** COMMENTED OUT problematic line ***
     # print(f"AD Domain: {Config.AD_DOMAIN}") # AD_DOMAIN no longer exists in Config
     print(f"Auth Mode: {'Test' if Config.TEST_MODE else 'Azure AD'}") # Indicate Auth mode
-    print(f"AAD Tenant ID: {Config.AAD_TENANT_ID if not Config.TEST_MODE else 'N/A'}")
-    print(f"AAD Client ID: {Config.AAD_CLIENT_ID if not Config.TEST_MODE else 'N/A'}")
+    if not Config.TEST_MODE:
+        print(f"AAD Tenant ID: {Config.AAD_TENANT_ID}")
+        print(f"AAD Client ID: {Config.AAD_CLIENT_ID}")
+    print(f"HTTPS Enabled: {'Yes' if Config.SSL_ENABLED else 'No'}") # <-- Indicate HTTPS status
+    if Config.SSL_ENABLED:
+        print(f"  Cert Path: {Config.SSL_CERT_PATH}")
+        print(f"  Key Path: {Config.SSL_KEY_PATH}")
     print(f"Languages: English, Spanish") #
     print("="*50 + "\n") #
 
@@ -201,21 +218,45 @@ if __name__ == '__main__':
     # Create Flask App
     app = create_app() #
 
-    # Print Server Access URLs
+    # --- Setup SSL Context if enabled ---
+    ssl_context = None
+    protocol = "http"
+    if Config.SSL_ENABLED:
+        try:
+            # Using 'adhoc' might work for simple dev certs, but explicit paths are better
+            # For production/signed certs:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(Config.SSL_CERT_PATH, Config.SSL_KEY_PATH)
+            ssl_context = context
+            protocol = "https"
+            print("✅ SSL Context created successfully.")
+        except Exception as e:
+            print(f"❌ Error creating SSL context: {e}")
+            print("   Falling back to HTTP.")
+            # Optionally exit if HTTPS is mandatory:
+            # sys.exit(1)
+
+    # --- Print Server Access URLs ---
     print("\n" + "="*60) #
-    print("🚀 SERVER STARTING (HTTP) - ACCESS URLS:") #
+    print(f"🚀 SERVER STARTING ({protocol.upper()}) - ACCESS URLS:") #
     print("="*60) #
-    print(f"Local:        http://localhost:5000") #
-    print(f"Network:      http://{local_ip}:5000") #
+    print(f"Local:        {protocol}://localhost:5000") #
+    print(f"Network:      {protocol}://{local_ip}:5000") #
     print("="*60) #
     print("\n📝 Make sure:") #
-    print("  1. Windows Firewall allows port 5000") #
+    print(f"  1. Firewall allows port 5000 (TCP)") #
     print("  2. No antivirus blocking the connection") #
+    if protocol == "https":
+        print("  3. Your browser trusts the certificate (or bypass warnings for dev certs)")
     print("\nPress CTRL+C to stop the server\n") #
 
-    # Run the Flask development server
+    # --- Run the Flask development server ---
+    # Use Waitress for a more production-ready server than Flask's built-in one
+    # If using Waitress with SSL, it needs configuration differently.
+    # Sticking with app.run for simplicity based on the current structure.
     app.run( #
         host='0.0.0.0', # Listen on all network interfaces
         port=5000, # Standard Flask dev port
-        debug=True # Enables detailed error messages and auto-reloading
+        debug=True, # Enables detailed error messages and auto-reloading
+        ssl_context=ssl_context # Pass the SSL context here
     )

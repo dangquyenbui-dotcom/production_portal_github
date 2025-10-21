@@ -4,6 +4,7 @@ Configuration settings for Production Portal
 Reads sensitive information from environment variables
 *** ADDED import os ***
 *** MODIFIED AAD_SCOPES default ***
+*** ADDED SSL Configuration Reading ***
 """
 
 import os # <-- Ensure this is still here
@@ -40,6 +41,12 @@ class Config:
     AD_PORTAL_ADMIN_GROUP = os.getenv('AD_PORTAL_ADMIN_GROUP', 'Production_Portal_Admin')
 
     TEST_MODE = os.getenv('TEST_MODE', 'False').lower() == 'true'
+
+    # --- ADDED: SSL Configuration ---
+    SSL_ENABLED = os.getenv('SSL_ENABLED', 'False').lower() == 'true'
+    SSL_CERT_PATH = os.getenv('SSL_CERT_PATH', 'cert.pem')
+    SSL_KEY_PATH = os.getenv('SSL_KEY_PATH', 'key.pem')
+    # --- END SSL Configuration ---
 
     # --- Main Application Database (ProductionDB) ---
     DB_SERVER = os.getenv('DB_SERVER')
@@ -86,10 +93,11 @@ class Config:
         #     if not cls.AD_SERVER: errors.append("AD_SERVER is required") ...
 
         # --- Add Azure AD validation ---
-        if not cls.AAD_CLIENT_ID: errors.append("AAD_CLIENT_ID is required")
-        if not cls.AAD_CLIENT_SECRET: errors.append("AAD_CLIENT_SECRET is required")
-        if not cls.AAD_TENANT_ID: errors.append("AAD_TENANT_ID is required")
-        if not cls.AAD_AUTHORITY: errors.append("AAD_AUTHORITY is required")
+        if not cls.TEST_MODE: # Only validate AAD if not in test mode
+            if not cls.AAD_CLIENT_ID: errors.append("AAD_CLIENT_ID is required")
+            if not cls.AAD_CLIENT_SECRET: errors.append("AAD_CLIENT_SECRET is required")
+            if not cls.AAD_TENANT_ID: errors.append("AAD_TENANT_ID is required")
+            if not cls.AAD_AUTHORITY: errors.append("AAD_AUTHORITY is required")
 
         # --- DB validation ---
         if not cls.DB_SERVER: errors.append("DB_SERVER is required")
@@ -102,6 +110,14 @@ class Config:
         if not cls.ERP_DB_NAME: errors.append("ERP_DB_NAME is required")
         if not cls.ERP_DB_USERNAME: errors.append("ERP_DB_USERNAME is required")
         if not cls.ERP_DB_PASSWORD: errors.append("ERP_DB_PASSWORD is required")
+
+        # --- SSL validation ---
+        if cls.SSL_ENABLED:
+            if not cls.SSL_CERT_PATH or not os.path.exists(cls.SSL_CERT_PATH):
+                errors.append(f"SSL_CERT_PATH is missing or file not found: {cls.SSL_CERT_PATH}")
+            if not cls.SSL_KEY_PATH or not os.path.exists(cls.SSL_KEY_PATH):
+                 errors.append(f"SSL_KEY_PATH is missing or file not found: {cls.SSL_KEY_PATH}")
+
 
         if errors:
             print("Configuration errors:")
