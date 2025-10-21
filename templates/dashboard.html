@@ -371,91 +371,79 @@
 </div>
 
 <div class="actions-grid">
-    {# --- START: Updated Admin Panel Access --- #}
-    {# Admin Panel: Only for DowntimeTracker_Admin, Production_Portal_Admin or Local Admin #}
-    {% if require_admin(session) %} {# Use the updated helper function #}
+    {# Admin Panel: DT_Admin, Sched_Admin, Portal_Admin #}
+    {% if require_admin(session) or require_scheduling_admin(session) %}
     <a href="/admin" class="action-card admin">
         <div class="action-icon">⚙️</div>
         <div class="action-title">Admin Panel</div>
         <div class="action-desc">Manage facilities, lines, and settings</div>
     </a>
     {% endif %}
-    {# --- END: Updated Admin Panel Access --- #}
 
-    {# --- START: Updated Scheduling Access --- #}
-    {# Scheduling: For Scheduling_Admin, Scheduling_User, Portal_Admin or Local Admin #}
-    {% if require_scheduling_admin(session) or require_scheduling_user(session) %} {# Use the updated helper functions #}
+    {# Scheduling: Sched_Admin, Sched_User, Portal_Admin #}
+    {% if require_scheduling_admin(session) or require_scheduling_user(session) %}
     <a href="{{ url_for('scheduling.index') }}" class="action-card admin">
         <div class="action-icon">🗓️</div>
         <div class="action-title">Scheduling</div>
         <div class="action-desc">Manage production projections for open orders.</div>
     </a>
     {% endif %}
-    {# --- END: Updated Scheduling Access --- #}
 
-    {# --- START: Updated BOM/PO/MRP/Sales Access --- #}
-    {# These viewers: For Admins (any type) and Scheduling users #}
+    {# BOM Viewer: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
     <a href="{{ url_for('bom.view_boms') }}" class="action-card">
         <div class="action-icon">📜</div>
         <div class="action-title">BOM Viewer</div>
         <div class="action-desc">Browse Bill of Materials data from the ERP.</div>
     </a>
+    {% endif %}
+
+    {# PO Viewer: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
+    {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
     <a href="{{ url_for('po.view_pos') }}" class="action-card">
         <div class="action-icon">📦</div>
         <div class="action-title">PO Viewer</div>
         <div class="action-desc">Browse open Purchase Orders from the ERP.</div>
     </a>
+    {% endif %}
+
+    {# MRP Suggestions: Sched_Admin, Portal_Admin #}
+    {% if require_scheduling_admin(session) %} {# This helper includes Portal_Admin & LocalAdmin #}
     <a href="{{ url_for('mrp.view_mrp') }}" class="action-card admin">
         <div class="action-icon">🧠</div>
         <div class="action-title">MRP Suggestions</div>
         <div class="action-desc">View production suggestions based on material availability.</div>
     </a>
-     <a href="{{ url_for('mrp.customer_summary') }}" class="action-card admin">
-        <div class="action-icon">📈</div>
-        <div class="action-title">MRP Customer Summary</div>
-        <div class="action-desc">View order status and shortages by customer.</div>
-    </a>
-     <a href="{{ url_for('mrp.buyer_view') }}" class="action-card admin">
-        <div class="action-icon">🛒</div>
-        <div class="action-title">Purchasing Shortage Report</div>
-        <div class="action-desc">Consolidated view of all component shortfalls.</div>
-    </a>
+    {% endif %}
+
+     {# Customer Analysis: Sched_Admin, Portal_Admin #}
+    {% if require_scheduling_admin(session) %} {# This helper includes Portal_Admin & LocalAdmin #}
      <a href="{{ url_for('sales.customer_analysis') }}" class="action-card">
         <div class="action-icon">🧑‍💼</div>
         <div class="action-title">Customer Analysis</div>
         <div class="action-desc">Review customer performance and sales data.</div>
     </a>
-     <a href="{{ url_for('jobs.view_open_jobs') }}" class="action-card">
-        <div class="action-icon">💼</div>
-        <div class="action-title">Open Jobs</div>
-        <div class="action-desc">View live open production jobs.</div>
-    </a>
     {% endif %}
-    {# --- END: Updated BOM/PO/MRP/Sales Access --- #}
 
-    {# --- START: Updated Downtime Access --- #}
-    {# Report Downtime: For DowntimeTracker_Admin, DowntimeTracker_User, Portal_Admin or Local Admin #}
-    {% if require_admin(session) or require_user(session) %} {# Use the updated helper functions #}
+    {# Report Downtime: DT_Admin, DT_User, Portal_Admin #}
+    {% if require_admin(session) or require_user(session) %}
     <a href="/downtime" class="action-card">
         <div class="action-icon">📝</div>
         <div class="action-title">Report Downtime</div>
         <div class="action-desc">Record production downtime events</div>
     </a>
     {% endif %}
-    {# --- END: Updated Downtime Access --- #}
 
-    {# --- START: Updated Reports Access --- #}
-    {# View Reports: Only for Admins (any type) #}
-    {% if require_admin(session) %} {# Use the updated helper function #}
+    {# View Reports: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
+    {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
     <a href="{{ url_for('reports.hub') }}" class="action-card">
         <div class="action-icon">📊</div>
         <div class="action-title">View Reports</div>
         <div class="action-desc">View downtime reports and analytics</div>
     </a>
     {% endif %}
-    {# --- END: Updated Reports Access --- #}
 
+    {# Logout: Always available for logged-in users #}
     <a href="/logout" class="action-card logout">
         <div class="action-icon">🚪</div>
         <div class="action-title">Logout</div>

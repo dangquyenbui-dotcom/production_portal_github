@@ -1,50 +1,84 @@
 {% extends "base.html" %}
 
-{% block title %}Reports - Downtime Tracker{% endblock %}
+{% block title %}Reports - Production Portal{% endblock %}
 
-{% block navbar_title %}📈 Reports{% endblock %}
+{% block navbar_title %}📊 Reports Hub{% endblock %}
 
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="header-card">
-    <h1>Reports Hub</h1>
-    <p>Select a report to view system analytics</p>
-</div>
+{# --- MODIFIED: Broaden access to the entire hub based on matrix --- #}
+{% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
 
-<div class="admin-grid">
-    <a href="{{ url_for('reports.downtime_summary') }}" class="admin-card">
-        <div class="admin-icon">📊</div>
-        <div class="admin-title">Downtime Summary</div>
-        <div class="admin-desc">Analyze downtime duration by category and production line.</div>
-    </a>
+    <div class="header-card">
+        <h1>Reports & Viewers Hub</h1>
+        <p>Select a report or data viewer</p>
+    </div>
 
-    <a href="{{ url_for('reports.shipment_forecast') }}" class="admin-card">
-        <div class="admin-icon">🔮</div>
-        <div class="admin-title">Shipment Forecast</div>
-        <div class="admin-desc">Automated monthly shipment forecast based on MRP data.</div>
-    </a>
+    <div class="admin-grid">
+        {# Each card implicitly inherits the hub's access check #}
+        <a href="{{ url_for('reports.downtime_summary') }}" class="admin-card">
+            <div class="admin-icon">📊</div>
+            <div class="admin-title">Downtime Summary</div>
+            <div class="admin-desc">Analyze downtime duration by category and production line.</div>
+        </a>
 
-    {# --- ADD THIS NEW CARD --- #}
-    <a href="{{ url_for('reports.coc_report') }}" class="admin-card">
-        <div class="admin-icon">📜</div>
-        <div class="admin-title">Certificate of Compliance</div>
-        <div class="admin-desc">View component usage and yield for a specific job.</div>
-    </a>
-    {# --- END NEW CARD --- #}
+        <a href="{{ url_for('reports.shipment_forecast') }}" class="admin-card">
+            <div class="admin-icon">🔮</div>
+            <div class="admin-title">Shipment Forecast</div>
+            <div class="admin-desc">Automated monthly shipment forecast based on MRP data.</div>
+        </a>
 
-    <a href="#" class="admin-card disabled">
-        <div class="admin-icon">🏭</div>
-        <div class="admin-title">Production Efficiency (Coming Soon)</div>
-        <div class="admin-desc">Report on overall equipment effectiveness (OEE).</div>
-    </a>
+        <a href="{{ url_for('reports.coc_report') }}" class="admin-card">
+            <div class="admin-icon">📜</div>
+            <div class="admin-title">Certificate of Compliance</div>
+            <div class="admin-desc">View component usage and yield for a specific job.</div>
+        </a>
 
-    <a href="#" class="admin-card disabled">
-        <div class="admin-icon">📦</div>
-        <div class="admin-title">Downtime by ERP Job (Coming Soon)</div>
-        <div class="admin-desc">Analyze downtime associated with specific jobs and parts.</div>
-    </a>
-</div>
+        <a href="{{ url_for('jobs.view_open_jobs') }}" class="admin-card">
+            <div class="admin-icon">💼</div>
+            <div class="admin-title">Open Jobs</div>
+            <div class="admin-desc">View live open production jobs and component usage.</div>
+        </a>
+
+        {# MRP Customer Summary needs Sched_Admin or Portal_Admin - require_scheduling_admin covers both #}
+        {% if require_scheduling_admin(session) %}
+        <a href="{{ url_for('mrp.customer_summary') }}" class="admin-card">
+            <div class="admin-icon">📈</div>
+            <div class="admin-title">MRP Customer Summary</div>
+            <div class="admin-desc">View order status and shortages by customer.</div>
+        </a>
+        {% endif %}
+
+        <a href="{{ url_for('mrp.buyer_view') }}" class="admin-card">
+            <div class="admin-icon">🛒</div>
+            <div class="admin-title">Purchasing Shortage Report</div>
+            <div class="admin-desc">Consolidated view of all component shortfalls.</div>
+        </a>
+
+        <a href="#" class="admin-card disabled">
+            <div class="admin-icon">🏭</div>
+            <div class="admin-title">Production Efficiency (Coming Soon)</div>
+            <div class="admin-desc">Report on overall equipment effectiveness (OEE).</div>
+        </a>
+
+        <a href="#" class="admin-card disabled">
+            <div class="admin-icon">📦</div>
+            <div class="admin-title">Downtime by ERP Job (Coming Soon)</div>
+            <div class="admin-desc">Analyze downtime associated with specific jobs and parts.</div>
+        </a>
+    </div>
+
+{% else %}
+    {# --- ADDED: Message for users without report access --- #}
+    <div class="header-card">
+        <h1>Access Denied</h1>
+        <p>You do not have the required permissions (Downtime Admin, Scheduling Admin, or Scheduling User) to view reports.</p>
+    </div>
+    <div style="text-align: center; margin-top: 30px;">
+         <a href="{{ url_for('main.dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+    </div>
+{% endif %}
 {% endblock %}
