@@ -22,39 +22,25 @@ from config import Config
 # Import database modules
 from database import facilities_db, lines_db, categories_db, downtimes_db, sessions_db, users_db
 from i18n_config import I18nConfig, _
-# Import the validate_session decorator defined in app.py (or wherever it resides now)
-# Assuming it's passed via app context or imported if defined elsewhere
-# If validate_session is defined in this file, ensure it uses sessions_db correctly.
-# If it's defined in app.py, this import might not be needed if applied globally,
-# but routes still need Flask components.
-# from app import validate_session # Adjust if validate_session is in app.py
+# Import the validate_session decorator defined in app.py
+from app import validate_session # Assuming validate_session is now in app.py
+
 
 main_bp = Blueprint('main', __name__)
-
-# --- Re-add validate_session decorator if it wasn't applied globally ---
-# --- If it IS applied globally in app.py, you can remove the @validate_session lines ---
-# --- For now, assume it's needed per-route as before ---
-from app import validate_session # Assuming validate_session is now in app.py
 
 
 @main_bp.route('/')
 def index():
-    # <<< DEBUGGING >>>
-    print(f"--- Request received for / from {request.remote_addr} ---")
-    print(f"Headers: {request.headers}")
-    # <<< END DEBUGGING >>>
+    print(f"--- Request received for / from {request.remote_addr} ---") # Keep this
     if 'user' in session:
         print("--- User found in session, redirecting to dashboard ---")
         return redirect(url_for('main.dashboard'))
-    # If not logged in, show the login page
     print("--- No user in session, redirecting to login ---")
     return redirect(url_for('main.login'))
 
 @main_bp.route('/switch-language/<language>')
 def switch_language(language):
-    # <<< DEBUGGING >>>
-    print(f"--- Request received for /switch-language/{language} from {request.remote_addr} ---")
-    # <<< END DEBUGGING >>>
+    print(f"--- Request received for /switch-language/{language} from {request.remote_addr} ---") # Keep this
     if I18nConfig.switch_language(language):
         flash(_('Language changed successfully'), 'success')
     else:
@@ -66,18 +52,14 @@ def switch_language(language):
 # --- MODIFIED: Login Route ---
 @main_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    # <<< DEBUGGING >>>
-    print(f"--- Request received for /login [{request.method}] from {request.remote_addr} ---")
-    # <<< END DEBUGGING >>>
+    print(f"--- Request received for /login [{request.method}] from {request.remote_addr} ---") # Keep this
     if 'user' in session:
         print("--- User found in session, redirecting to dashboard from /login ---")
         return redirect(url_for('main.dashboard'))
 
     # POST handles local admin login submission
     if request.method == 'POST':
-        # <<< DEBUGGING >>>
-        print("--- Handling POST request for /login (Local Admin attempt) ---")
-        # <<< END DEBUGGING >>>
+        print("--- Handling POST request for /login (Local Admin attempt) ---") # Keep this
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
 
@@ -93,7 +75,7 @@ def login():
                 session.permanent = True
                 session['user'] = session_user_info
                 session['session_id'] = new_session_id
-                print(f"🔑 Local admin {username} logged in successfully.")
+                print(f"🔑 Local admin {username} logged in successfully.") # Keep this
                 try: # Log local admin login
                     users_db.log_login(
                         username=log_user_info['username'],
@@ -105,80 +87,72 @@ def login():
                         user_agent=user_agent
                     )
                 except Exception as e: print(f"Failed to log local admin login: {e}")
-                print("--- Redirecting to dashboard after local admin login ---")
+                print("--- Redirecting to dashboard after local admin login ---") # Keep this
                 return redirect(url_for('main.dashboard'))
             else:
                 # Local admin credentials failed
                 flash(_('Invalid credentials or access denied'), 'error')
                 # Show login page again
-                print("--- Rendering login template after failed local admin attempt ---")
+                print("--- Rendering login template after failed local admin attempt ---") # Keep this
                 return render_template('login.html', config=Config)
         else:
             # If POST is not for local admin, treat as invalid attempt
             flash(_('Invalid credentials or access denied'), 'error')
-            print("--- Rendering login template after invalid POST username ---")
+            print("--- Rendering login template after invalid POST username ---") # Keep this
             return render_template('login.html', config=Config)
     else:
         # --- GET request renders the login template ---
-        # <<< DEBUGGING >>>
-        print("--- Rendering login template for GET request ---")
-        # <<< END DEBUGGING >>>
+        print("--- Rendering login template for GET request ---") # Keep this
         return render_template('login.html', config=Config)
 
 # --- NEW ROUTE: To explicitly trigger Microsoft Login ---
 @main_bp.route('/login/microsoft')
 def login_microsoft():
-    # <<< DEBUGGING >>>
-    print(f"--- Request received for /login/microsoft from {request.remote_addr} ---")
-    # <<< END DEBUGGING >>>
+    # <<< ADDED MORE LOGGING >>>
+    print(f"--- >>> HIT /login/microsoft ROUTE <<< --- from {request.remote_addr}")
     # Clear session before redirecting to avoid conflicts
     session.clear()
+    print("--- Cleared session. Building Azure AD auth URL... ---")
     # Build the Azure AD authorization URL and redirect
-    print("--- Building Azure AD auth URL and redirecting ---")
     auth_url = _build_auth_url()
+    print(f"--- Redirecting user to Azure AD URL starting with: {auth_url[:100]}... ---")
     return redirect(auth_url)
 
 
 # --- Callback Route (No changes needed here, but adding logging) ---
 @main_bp.route('/get_token')
 def authorized():
-    # <<< DEBUGGING >>>
-    print(f"--- Request received for /get_token (Azure AD Callback) from {request.remote_addr} ---")
+    # <<< ADDED MORE LOGGING >>>
+    print(f"--- >>> HIT /get_token ROUTE (AZURE AD CALLBACK) <<< --- from {request.remote_addr}")
     print(f"Callback Args: {request.args}")
-    # <<< END DEBUGGING >>>
+    # <<< END LOGGING >>>
     try:
-        # <<< DEBUGGING >>>
-        print("--- Attempting to get token from code ---")
-        # <<< END DEBUGGING >>>
+        print("--- Attempting to get token from code ---") # Keep this
         result = _get_token_from_code(request_args=request.args)
-        # <<< DEBUGGING >>>
-        print(f"--- Token acquisition result obtained (contains keys: {'error' in result if result else 'N/A'}) ---")
-        # <<< END DEBUGGING >>>
+        print(f"--- Token acquisition result obtained (contains keys: {'error' in result if result else 'N/A'}) ---") # Keep this
 
         if not result or "error" in result:
              error_desc = result.get('error_description', 'Unknown Azure AD error') if result else 'Token acquisition failed'
              print(f"Error acquiring token: {error_desc}")
              flash(f"Login failed: {error_desc}", 'error')
-             print("--- Redirecting to login due to token error ---")
+             print("--- Redirecting to login due to token error ---") # Keep this
              return redirect(url_for('main.login'))
 
         if "id_token_claims" not in result:
             print("Error: 'id_token_claims' not found in token response.")
             flash("Login failed: Could not retrieve user identity information.", 'error')
-            print("--- Redirecting to login due to missing claims ---")
+            print("--- Redirecting to login due to missing claims ---") # Keep this
             return redirect(url_for('main.login'))
 
         user_claims = result["id_token_claims"]
-        # <<< DEBUGGING >>>
-        print("--- Successfully obtained ID token claims ---")
+        print("--- Successfully obtained ID token claims ---") # Keep this
         # print(json.dumps(user_claims, indent=2)) # Optional: Uncomment for full claims details
-        # <<< END DEBUGGING >>>
 
         session_user_info, log_user_info = build_user_session(user_claims)
 
         if session_user_info is None:
             flash(_('You do not have permission to access this application.'), 'error')
-            print("--- Redirecting to login due to lack of permissions (build_user_session returned None) ---")
+            print("--- Redirecting to login due to lack of permissions (build_user_session returned None) ---") # Keep this
             return redirect(url_for('main.login'))
 
         # --- Login successful - Set up local session ---
@@ -187,22 +161,18 @@ def authorized():
         from utils import get_client_info # Keep import local
         ip, user_agent = get_client_info()
 
-        # <<< DEBUGGING >>>
-        print(f"--- Creating local session for user: {username} ---")
-        # <<< END DEBUGGING >>>
+        print(f"--- Creating local session for user: {username} ---") # Keep this
         sessions_db.create_session(new_session_id, username, ip, user_agent)
 
         session.permanent = True
         session['user'] = session_user_info
         session['session_id'] = new_session_id
 
-        print(f"✅ User {username} logged in successfully via Azure AD.")
+        print(f"✅ User {username} logged in successfully via Azure AD.") # Keep this
 
         # Log the login event
         try:
-            # <<< DEBUGGING >>>
-            print(f"--- Logging Azure AD login event for user: {username} ---")
-            # <<< END DEBUGGING >>>
+            print(f"--- Logging Azure AD login event for user: {username} ---") # Keep this
             users_db.log_login(
                 username=log_user_info['username'],
                 display_name=log_user_info.get('display_name'),
@@ -215,20 +185,20 @@ def authorized():
         except Exception as e:
             print(f"Failed to log Azure AD login event: {str(e)}")
 
-        print("--- Redirecting to dashboard after Azure AD login ---")
+        print("--- Redirecting to dashboard after Azure AD login ---") # Keep this
         return redirect(url_for('main.dashboard'))
 
     except ValueError as e:
          print(f"Authentication callback ValueError: {e}")
          flash(f"Login failed: {e}", 'error')
-         print("--- Redirecting to login due to ValueError in callback ---")
+         print("--- Redirecting to login due to ValueError in callback ---") # Keep this
          return redirect(url_for('main.login'))
     except Exception as e:
          print(f"Unexpected error during Azure AD callback: {e}")
          import traceback
          traceback.print_exc()
          flash("An unexpected error occurred during login.", 'error')
-         print("--- Redirecting to login due to unexpected exception in callback ---")
+         print("--- Redirecting to login due to unexpected exception in callback ---") # Keep this
          return redirect(url_for('main.login'))
 
 
@@ -236,9 +206,7 @@ def authorized():
 @main_bp.route('/dashboard')
 @validate_session # Make sure this decorator is correctly applied/imported
 def dashboard():
-    # <<< DEBUGGING >>>
-    print(f"--- Request received for /dashboard from {request.remote_addr} ---")
-    # <<< END DEBUGGING >>>
+    print(f"--- Request received for /dashboard from {request.remote_addr} ---") # Keep this
     stats = { 'facilities': 0, 'production_lines': 0, 'recent_downtime_count': 0, 'categories': 0 }
     try:
         stats['facilities'] = len(facilities_db.get_all(active_only=True) or [])
@@ -247,16 +215,14 @@ def dashboard():
         stats['recent_downtime_count'] = len(downtimes_db.get_recent(days=7) or [])
     except Exception as e: print(f"Error getting dashboard stats: {e}")
 
-    print("--- Rendering dashboard template ---")
+    print("--- Rendering dashboard template ---") # Keep this
     return render_template('dashboard.html', user=session.get('user'), stats=stats, config=Config)
 
 
 # --- Logout Route ---
 @main_bp.route('/logout')
 def logout():
-    # <<< DEBUGGING >>>
-    print(f"--- Request received for /logout from {request.remote_addr} ---")
-    # <<< END DEBUGGING >>>
+    print(f"--- Request received for /logout from {request.remote_addr} ---") # Keep this
     username = session.get('user', {}).get('username', 'Unknown')
     session_id = session.get('session_id')
 
@@ -269,7 +235,7 @@ def logout():
     session.pop('token_cache', None) # MSAL cache if stored
     session.pop('state', None) # MSAL state
 
-    print(f"User {username} logged out locally.")
+    print(f"User {username} logged out locally.") # Keep this
     flash(_('You have been successfully logged out'), 'info')
 
     # Redirect to Azure AD logout endpoint
@@ -278,7 +244,7 @@ def logout():
         f"{Config.AAD_AUTHORITY}/oauth2/v2.0/logout"
         f"?post_logout_redirect_uri={logout_uri}"
     )
-    print(f"--- Redirecting to Azure AD logout URL: {azure_logout_url} ---")
+    print(f"--- Redirecting to Azure AD logout URL: {azure_logout_url} ---") # Keep this
     return redirect(azure_logout_url)
 
 
@@ -286,9 +252,7 @@ def logout():
 @main_bp.route('/status')
 @validate_session # Make sure decorator is applied/imported
 def status():
-    # <<< DEBUGGING >>>
-    print(f"--- Request received for /status from {request.remote_addr} ---")
-    # <<< END DEBUGGING >>>
+    print(f"--- Request received for /status from {request.remote_addr} ---") # Keep this
     # Use require_admin check directly
     if not require_admin(session):
         flash(_('Admin privileges required'), 'error')
@@ -314,5 +278,5 @@ def status():
              # status_info['users_today'] = stats.get('active_today', 0)
     except Exception as e: print(f"Error in status check: {e}")
 
-    print("--- Rendering status template ---")
+    print("--- Rendering status template ---") # Keep this
     return render_template('status.html', user=session.get('user'), status=status_info, config=Config)
