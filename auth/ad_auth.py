@@ -1,78 +1,125 @@
 # auth/ad_auth.py
 """
-Active Directory Authentication Module
-Handles user authentication and authorization
+Azure AD (OIDC) Authentication Module using MSAL Python
+Handles user authentication and authorization via Azure AD.
 """
 
-from ldap3 import Server, Connection, ALL, SIMPLE, SUBTREE
-import ldap3.core.exceptions
-from werkzeug.security import generate_password_hash, check_password_hash
+import msal
+import uuid
+from flask import session, url_for, request
 from config import Config
+from werkzeug.security import check_password_hash # Keep for local admin fallback
 
-# --- START: Local Admin Configuration ---
+# --- Local Admin Configuration (remains the same) ---
 LOCAL_ADMIN_USERNAME = 'production_portal_admin'
 LOCAL_ADMIN_PASSWORD_HASH = 'pbkdf2:sha256:1000000$7GUCiDMbjttS4Sa9$87463836cef236308961cbf57d01a4cd1b14e79c7bbd707ff15faa6a947c1609'
-# --- END: Local Admin Configuration ---
 
-def get_user_groups(username):
-    """Get AD groups for a user using the service account"""
-    if username == LOCAL_ADMIN_USERNAME:
-        return {
-            'groups': ['LocalAdmin'],
-            'display_name': 'Local Portal Admin',
-            'email': 'local_admin@system.local'
-        }
-    try:
-        server = Server(Config.AD_SERVER, port=Config.AD_PORT, get_info=ALL)
-        service_user = f'{Config.AD_SERVICE_ACCOUNT}@{Config.AD_DOMAIN}'
+# --- MSAL Setup ---
+def _build_msal_app(cache=None):
+    """Builds the MSAL Confidential Client Application instance."""
+    return msal.ConfidentialClientApplication(
+        Config.AAD_CLIENT_ID,
+        authority=Config.AAD_AUTHORITY,
+        client_credential=Config.AAD_CLIENT_SECRET,
+        token_cache=cache
+    )
 
-        service_conn = Connection(
-            server,
-            user=service_user,
-            password=Config.AD_SERVICE_PASSWORD,
-            authentication=SIMPLE,
-            auto_bind=True
+def _build_auth_url(authority=None, scopes=None, state=None):
+    """Generates the Azure AD authorization URL."""
+    # Ensure session state for CSRF protection
+    session["state"] = state or str(uuid.uuid4())
+    # Generate the URL to redirect the user to Azure AD login
+    auth_url = _build_msal_app().get_authorization_request_url(
+        scopes or Config.AAD_SCOPES,
+        state=session["state"],
+        redirect_uri=url_for("main.authorized", _external=True) # Needs callback route named 'authorized' in main_bp
+    )
+    return auth_url
+
+def _get_token_from_code(authority=None, scopes=None, request_args=None):
+    """Handles the callback from Azure AD to exchange code for token."""
+    # Check for state mismatch (CSRF protection)
+    if request_args.get("state") != session.get("state"):
+        raise ValueError("State mismatch error.")
+    # Check for authentication errors from Azure AD
+    if "error" in request_args:
+        raise ValueError(f"Azure AD Error: {request_args.get('error')}, Description: {request_args.get('error_description')}")
+
+    if request_args.get("code"):
+        cache = _load_cache()
+        cca = _build_msal_app(cache=cache)
+        # Exchange the authorization code for an ID token and access token
+        result = cca.acquire_token_by_authorization_code(
+            request_args["code"],
+            scopes=scopes or Config.AAD_SCOPES,
+            redirect_uri=url_for("main.authorized", _external=True)
         )
+        _save_cache(cache)
+        return result
+    else:
+        raise ValueError("Authorization code not found in callback.")
 
-        search_filter = f'(&(objectClass=user)(sAMAccountName={username}))'
-        service_conn.search(
-            Config.AD_BASE_DN,
-            search_filter,
-            SUBTREE,
-            attributes=['memberOf', 'displayName', 'mail', 'distinguishedName', 'sAMAccountName']
-        )
 
-        if service_conn.entries:
-            user_entry = service_conn.entries[0]
+# --- Session Cache (Optional but recommended for token management) ---
+def _load_cache():
+    cache = msal.SerializableTokenCache()
+    if session.get("token_cache"):
+        cache.deserialize(session["token_cache"])
+    return cache
 
-            groups = []
-            if hasattr(user_entry, 'memberOf') and user_entry.memberOf:
-                for group_dn in user_entry.memberOf:
-                    group_name = str(group_dn).split(',')[0].replace('CN=', '')
-                    groups.append(group_name)
+def _save_cache(cache):
+    if cache.has_state_changed:
+        session["token_cache"] = cache.serialize()
 
-            display_name = str(user_entry.displayName) if hasattr(user_entry, 'displayName') else username
-            email = str(user_entry.mail) if hasattr(user_entry, 'mail') else f'{username}@{Config.AD_DOMAIN}'
 
-            service_conn.unbind()
+# --- Map User Info and Permissions ---
+def build_user_session(id_token_claims):
+    """
+    Extracts user info from the ID token claims and determines permissions.
+    """
+    username = id_token_claims.get("preferred_username", id_token_claims.get("upn", "Unknown"))
+    display_name = id_token_claims.get("name", username)
+    email = id_token_claims.get("email", f"{username}@<domain_fallback>") # Add fallback domain if email missing
+    # Important: 'groups' claim might contain Object IDs or names depending on Azure config
+    # 'roles' claim is used if you configured App Roles in the registration
+    user_groups = id_token_claims.get("groups", [])
+    user_roles = id_token_claims.get("roles", [])
 
-            return {
-                'groups': groups,
-                'display_name': display_name,
-                'email': email
-            }
+    # *** PERMISSION MAPPING LOGIC ***
+    # Adjust this based on whether you use Azure AD group names, Object IDs, or App Roles
+    # This example assumes you're matching against the group *names* defined in Config
+    is_portal_admin = Config.AD_PORTAL_ADMIN_GROUP in user_groups or Config.AD_PORTAL_ADMIN_GROUP in user_roles
+    is_admin = Config.AD_ADMIN_GROUP in user_groups or Config.AD_ADMIN_GROUP in user_roles or is_portal_admin
+    is_user = Config.AD_USER_GROUP in user_groups or Config.AD_USER_GROUP in user_roles or is_portal_admin
+    is_scheduling_admin = Config.AD_SCHEDULING_ADMIN_GROUP in user_groups or Config.AD_SCHEDULING_ADMIN_GROUP in user_roles or is_portal_admin
+    is_scheduling_user = Config.AD_SCHEDULING_USER_GROUP in user_groups or Config.AD_SCHEDULING_USER_GROUP in user_roles or is_portal_admin
 
-        service_conn.unbind()
-        return None
+    # Check if user has at least one relevant permission
+    if not any([is_admin, is_user, is_scheduling_admin, is_scheduling_user]):
+        print(f"User {username} authenticated but not in required Azure AD groups/roles")
+        # You might want to flash a message here or handle it in the callback route
+        return None # Indicate insufficient permissions
 
-    except Exception as e:
-        print(f"Error getting user groups: {str(e)}")
-        return None
+    user_info = {
+        'username': username.split('@')[0] if '@' in username else username, # Get just the account name part
+        'display_name': display_name,
+        'email': email,
+        'groups': user_groups, # Store the actual Azure groups/roles
+        'roles': user_roles,
+        'is_admin': is_admin,
+        'is_user': is_user,
+        'is_scheduling_admin': is_scheduling_admin,
+        'is_scheduling_user': is_scheduling_user,
+        'is_portal_admin': is_portal_admin,
+        # Store claims for potential future use (e.g., calling APIs)
+        # 'claims': id_token_claims
+    }
+    return user_info
 
-def authenticate_user(username, password):
-    """Authenticate user against Active Directory OR local admin credentials"""
 
-    # --- START: Check for Local Admin ---
+# --- Local Admin Fallback Authentication ---
+def authenticate_local_admin(username, password):
+    """Authenticate local admin credentials only."""
     if username == LOCAL_ADMIN_USERNAME and check_password_hash(LOCAL_ADMIN_PASSWORD_HASH, password):
         print(f"Authenticated local admin: {username}")
         # Grant all admin permissions
@@ -81,193 +128,40 @@ def authenticate_user(username, password):
             'display_name': 'Local Portal Admin',
             'email': 'local_admin@system.local',
             'groups': ['LocalAdmin'],
-            'is_admin': True, # Downtime Admin
+            'roles': ['LocalAdminRole'],
+            'is_admin': True,
             'is_user': True,
-            'is_scheduling_admin': True, # Scheduling Admin
+            'is_scheduling_admin': True,
             'is_scheduling_user': True,
-            'is_portal_admin': True, # Flag for the new group type (optional but good practice)
+            'is_portal_admin': True,
         }
-    # --- END: Check for Local Admin ---
-
-    # Test mode for development
-    if Config.TEST_MODE:
-        test_users = {
-            # ... (test users remain the same) ...
-             'dt_admin': {
-                'password': 'password', 'display_name': 'Downtime Admin',
-                'groups': [Config.AD_ADMIN_GROUP]
-            },
-            'dt_user': {
-                'password': 'password', 'display_name': 'Downtime User',
-                'groups': [Config.AD_USER_GROUP]
-            },
-            'sched_admin': {
-                'password': 'password', 'display_name': 'Scheduling Admin',
-                'groups': [Config.AD_SCHEDULING_ADMIN_GROUP]
-            },
-            'sched_user': {
-                'password': 'password', 'display_name': 'Scheduling User',
-                'groups': [Config.AD_SCHEDULING_USER_GROUP]
-            },
-            'super_admin': {
-                'password': 'password', 'display_name': 'Super Admin',
-                'groups': [Config.AD_ADMIN_GROUP, Config.AD_SCHEDULING_ADMIN_GROUP]
-            },
-            # Add a test user for the new portal admin if needed
-            'portal_admin': {
-                'password': 'password', 'display_name': 'Portal Admin (Test)',
-                'groups': [Config.AD_PORTAL_ADMIN_GROUP]
-            }
-        }
-
-        if username in test_users and test_users[username]['password'] == password:
-            user = test_users[username]
-            # --- START: Check for new Portal Admin group in TEST MODE ---
-            is_portal_admin = Config.AD_PORTAL_ADMIN_GROUP in user['groups']
-            # If portal admin, grant all permissions
-            is_admin = Config.AD_ADMIN_GROUP in user['groups'] or is_portal_admin
-            is_user = Config.AD_USER_GROUP in user['groups'] or is_portal_admin
-            is_scheduling_admin = Config.AD_SCHEDULING_ADMIN_GROUP in user['groups'] or is_portal_admin
-            is_scheduling_user = Config.AD_SCHEDULING_USER_GROUP in user['groups'] or is_portal_admin
-            # --- END: Check for new Portal Admin group in TEST MODE ---
-
-            # User must be in at least one relevant group (or be portal admin)
-            if not any([is_admin, is_user, is_scheduling_admin, is_scheduling_user]):
-                 return None
-
-            return {
-                'username': username,
-                'display_name': user['display_name'],
-                'email': f'{username}@{Config.AD_DOMAIN}',
-                'groups': user['groups'],
-                'is_admin': is_admin,
-                'is_user': is_user,
-                'is_scheduling_admin': is_scheduling_admin,
-                'is_scheduling_user': is_scheduling_user,
-                'is_portal_admin': is_portal_admin, # Add the flag
-            }
-        # If not local admin and not a test user in test mode, return None
-        return None
-
-    # Real AD Authentication
-    try:
-        server = Server(Config.AD_SERVER, port=Config.AD_PORT, get_info=ALL)
-        user_principal = f'{username}@{Config.AD_DOMAIN}'
-
-        try:
-            # Attempt user authentication
-            user_conn = Connection(
-                server,
-                user=user_principal,
-                password=password,
-                authentication=SIMPLE,
-                auto_bind=True
-            )
-            user_conn.unbind()
-
-            # Get user groups
-            user_info = get_user_groups(username)
-
-            if user_info:
-                # --- START: Check for new Portal Admin group in AD ---
-                is_portal_admin = Config.AD_PORTAL_ADMIN_GROUP in user_info['groups']
-
-                # Determine permissions based on groups
-                is_in_admin = Config.AD_ADMIN_GROUP in user_info['groups'] or is_portal_admin
-                is_in_user = Config.AD_USER_GROUP in user_info['groups'] or is_portal_admin
-                is_in_scheduling_admin = Config.AD_SCHEDULING_ADMIN_GROUP in user_info['groups'] or is_portal_admin
-                is_in_scheduling_user = Config.AD_SCHEDULING_USER_GROUP in user_info['groups'] or is_portal_admin
-                # --- END: Check for new Portal Admin group in AD ---
-
-                # User must be in at least one relevant group (or be portal admin)
-                if not any([is_in_admin, is_in_user, is_in_scheduling_admin, is_in_scheduling_user]):
-                    print(f"User {username} not in required AD groups")
-                    return None
-
-                return {
-                    'username': username,
-                    'display_name': user_info['display_name'],
-                    'email': user_info['email'],
-                    'groups': user_info['groups'],
-                    'is_admin': is_in_admin,
-                    'is_user': is_in_user,
-                    'is_scheduling_admin': is_in_scheduling_admin,
-                    'is_scheduling_user': is_in_scheduling_user,
-                    'is_portal_admin': is_portal_admin, # Add the flag
-                }
-
-        except ldap3.core.exceptions.LDAPBindError:
-            print(f"Invalid AD credentials for user: {username}")
-            return None # Failed AD auth, and wasn't local admin
-
-    except Exception as e:
-        print(f"AD Authentication error: {str(e)}")
-        # If AD is unavailable, this will likely fail, but local admin check happened first.
-        return None
-
-    # Fallback if AD auth somehow fails without exception but didn't match local admin
     return None
 
-# --- Functions below need updating ---
-
+# --- Permission Check Functions (Leverage session data set by build_user_session) ---
 def require_login(session):
-    """Check if user is logged in"""
+    """Check if user is logged in (basic session check)."""
     return 'user' in session
 
 def require_admin(session):
-    """Check if user is DowntimeTracker_Admin, Production_Portal_Admin OR local admin"""
-    if 'user' in session:
-        # Check local admin OR portal admin flag OR specific group flag
-        return (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
-                session['user'].get('is_portal_admin', False) or
-                session['user'].get('is_admin', False))
-    return False
+    """Check if user has Downtime Admin or Portal Admin rights."""
+    user = session.get('user')
+    return user and (user.get('is_admin') or user.get('is_portal_admin'))
 
 def require_user(session):
-    """Check if user is DowntimeTracker_User, Production_Portal_Admin OR local admin"""
-    if 'user' in session:
-        # Local admin and portal admin have user permissions too
-        return (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
-                session['user'].get('is_portal_admin', False) or
-                session['user'].get('is_user', False))
-    return False
+    """Check if user has basic Downtime User rights (or higher)."""
+    user = session.get('user')
+    return user and (user.get('is_user') or user.get('is_admin') or user.get('is_portal_admin'))
 
 def require_scheduling_admin(session):
-    """Check if user is Scheduling_Admin, Production_Portal_Admin OR local admin"""
-    if 'user' in session:
-        # Local admin and portal admin have scheduling admin permissions too
-        return (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
-                session['user'].get('is_portal_admin', False) or
-                session['user'].get('is_scheduling_admin', False))
-    return False
+    """Check if user has Scheduling Admin or Portal Admin rights."""
+    user = session.get('user')
+    return user and (user.get('is_scheduling_admin') or user.get('is_portal_admin'))
 
 def require_scheduling_user(session):
-    """Check if user is Scheduling_User, Production_Portal_Admin OR local admin"""
-    if 'user' in session:
-        # Local admin and portal admin have scheduling user permissions too
-        return (session['user'].get('username') == LOCAL_ADMIN_USERNAME or
-                session['user'].get('is_portal_admin', False) or
-                session['user'].get('is_scheduling_user', False))
-    return False
+    """Check if user has Scheduling User rights (or higher)."""
+    user = session.get('user')
+    return user and (user.get('is_scheduling_user') or user.get('is_scheduling_admin') or user.get('is_portal_admin'))
 
-def test_ad_connection():
-    """Test Active Directory connection"""
-    if Config.TEST_MODE:
-        return True
-
-    try:
-        server = Server(Config.AD_SERVER, port=Config.AD_PORT, get_info=ALL)
-        service_user = f'{Config.AD_SERVICE_ACCOUNT}@{Config.AD_DOMAIN}'
-
-        conn = Connection(
-            server,
-            user=service_user,
-            password=Config.AD_SERVICE_PASSWORD,
-            authentication=SIMPLE,
-            auto_bind=True
-        )
-        conn.unbind()
-        return True
-    except Exception as e:
-        print(f"AD connection test failed: {str(e)}")
-        return False
+# AD Connection test is no longer relevant with OIDC/Azure AD
+# def test_ad_connection():
+#     return True # Or remove entirely

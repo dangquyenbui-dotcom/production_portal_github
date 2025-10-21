@@ -1,9 +1,21 @@
 # app.py - UPDATED to include PO Blueprint and Auth Helpers in Jinja
+# *** ADDED DETAILED LOGGING FOR LDAP3 ***
+# *** REMOVED Config.AD_DOMAIN reference ***
 
 """
 Production Portal - Main Application
 Production-ready configuration with network access and i18n support
 """
+
+# *** START: Added Logging Configuration ***
+import logging
+import sys
+# Configure root logger to output to console
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Set ldap3 library logger to DEBUG level for detailed output
+# ldap3_logger = logging.getLogger('ldap3') # Comment out if not needed for Azure AD debugging
+# ldap3_logger.setLevel(logging.DEBUG)        # Comment out if not needed for Azure AD debugging
+# *** END: Added Logging Configuration ***
 
 from flask import Flask, session
 import os
@@ -13,12 +25,14 @@ import socket
 
 # Import i18n configuration
 from i18n_config import I18nConfig, _, format_datetime_i18n, format_date_i18n
-# --- Import Auth helper functions ---
+# --- MODIFIED: Import Azure AD/MSAL based auth helpers ---
 from auth import (
+    require_login,
     require_admin,
     require_user,
     require_scheduling_admin,
     require_scheduling_user
+    # Note: test_ad_connection might be removed or return True if kept
 )
 
 def create_app():
@@ -117,12 +131,20 @@ def get_local_ip():
     """Get the local IP address of the machine"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) #
-        s.connect(("8.8.8.8", 80)) #
+        # Try connecting to an external server to find the local IP used for external comms
+        s.connect(("8.8.8.8", 80)) # Google's public DNS
         local_ip = s.getsockname()[0] #
         s.close() #
         return local_ip
-    except:
-        return "127.0.0.1" #
+    except Exception:
+        try:
+            # Fallback: Get hostname and resolve it
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            return local_ip
+        except Exception:
+             # Final fallback
+            return "127.0.0.1" #
 
 def test_services():
     """Test all service connections on startup"""
@@ -137,37 +159,49 @@ def test_services():
     else:
         print("❌ Database: Not connected") #
 
-    if not Config.TEST_MODE: #
-        from auth.ad_auth import test_ad_connection #
-        if test_ad_connection(): #
-            print("✅ Active Directory: Connected") #
-        else:
-            print("❌ Active Directory: Not connected") #
-    else:
+    # --- AD Connection Test is no longer relevant with Azure AD ---
+    # if not Config.TEST_MODE: #
+    #     from auth import test_ad_connection # This function might be removed from auth now
+    #     if test_ad_connection(): #
+    #         print("✅ Active Directory: Connected") #
+    #     else:
+    #         print("❌ Active Directory: Not connected") #
+    if Config.TEST_MODE:
         print("🧪 Test Mode: Using fake authentication") #
+    else:
+        print("ℹ️ Authentication Mode: Azure AD (OIDC)")
+
 
     print("="*60 + "\n") #
 
 if __name__ == '__main__':
+    # Ensure directories exist
     os.makedirs('static', exist_ok=True) #
     os.makedirs('templates', exist_ok=True) #
 
     local_ip = get_local_ip() #
 
+    # Print Configuration Summary
     print("\n" + "="*50) #
     print("PRODUCTION PORTAL v2.1.0 - CONFIGURATION") #
     print("="*50) #
     print(f"Mode: {'TEST' if Config.TEST_MODE else 'PRODUCTION'}") #
     print(f"Database: {Config.DB_SERVER}/{Config.DB_NAME}") #
-    print(f"AD Domain: {Config.AD_DOMAIN}") #
+    # *** COMMENTED OUT problematic line ***
+    # print(f"AD Domain: {Config.AD_DOMAIN}") # AD_DOMAIN no longer exists in Config
+    print(f"Auth Mode: {'Test' if Config.TEST_MODE else 'Azure AD'}") # Indicate Auth mode
+    print(f"AAD Tenant ID: {Config.AAD_TENANT_ID if not Config.TEST_MODE else 'N/A'}")
+    print(f"AAD Client ID: {Config.AAD_CLIENT_ID if not Config.TEST_MODE else 'N/A'}")
     print(f"Languages: English, Spanish") #
     print("="*50 + "\n") #
 
+    # Run connection tests
     test_services() #
 
+    # Create Flask App
     app = create_app() #
 
-    # --- MODIFIED: Reverted to HTTP ---
+    # Print Server Access URLs
     print("\n" + "="*60) #
     print("🚀 SERVER STARTING (HTTP) - ACCESS URLS:") #
     print("="*60) #
@@ -179,9 +213,9 @@ if __name__ == '__main__':
     print("  2. No antivirus blocking the connection") #
     print("\nPress CTRL+C to stop the server\n") #
 
-    # Use Flask's built-in server without SSL
+    # Run the Flask development server
     app.run( #
-        host='0.0.0.0', #
-        port=5000, #
+        host='0.0.0.0', # Listen on all network interfaces
+        port=5000, # Standard Flask dev port
         debug=True # Enables detailed error messages and auto-reloading
     )
