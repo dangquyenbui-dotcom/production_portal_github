@@ -1,13 +1,9 @@
-# config.py
 """
-Configuration settings for Production Portal
+Configuration settings for Production Portal v1
 Reads sensitive information from environment variables
-*** ADDED import os ***
-*** MODIFIED AAD_SCOPES default ***
-*** ADDED SSL Config ***
 """
 
-import os # <-- Ensure this is still here
+import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -20,26 +16,26 @@ class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-key-change-in-production')
     SESSION_HOURS = int(os.getenv('SESSION_HOURS', '8'))
 
-    # --- Remove or comment out old AD vars ---
-    # AD_SERVER = os.getenv('AD_SERVER')
-    # ... (etc.)
+    # Active Directory settings
+    AD_SERVER = os.getenv('AD_SERVER')
+    AD_DOMAIN = os.getenv('AD_DOMAIN')
+    AD_PORT = int(os.getenv('AD_PORT', '389'))
 
-    # --- Add Azure AD / MSAL Config ---
-    AAD_CLIENT_ID = os.getenv('AAD_CLIENT_ID')
-    AAD_CLIENT_SECRET = os.getenv('AAD_CLIENT_SECRET')
-    AAD_TENANT_ID = os.getenv('AAD_TENANT_ID')
-    AAD_AUTHORITY = os.getenv('AAD_AUTHORITY', f"https://login.microsoftonline.com/{AAD_TENANT_ID}")
-    # *** MODIFIED DEFAULT: Removed openid and profile ***
-    _scopes_str = os.getenv('AAD_SCOPES', 'email User.Read')
-    AAD_SCOPES = _scopes_str.split(' ') if _scopes_str else []
+    # Service account for AD queries
+    AD_SERVICE_ACCOUNT = os.getenv('AD_SERVICE_ACCOUNT')
+    AD_SERVICE_PASSWORD = os.getenv('AD_SERVICE_PASSWORD')
 
-    # --- Keep Group Names (for mapping) ---
-    AD_ADMIN_GROUP = os.getenv('AD_ADMIN_GROUP', 'DowntimeTracker_Admin')
+    # Security Groups
+    AD_ADMIN_GROUP = os.getenv('AD_ADMIN_GROUP', 'DowntimeTracker_Admin') # Original admin group
     AD_USER_GROUP = os.getenv('AD_USER_GROUP', 'DowntimeTracker_User')
     AD_SCHEDULING_ADMIN_GROUP = os.getenv('AD_SCHEDULING_ADMIN_GROUP', 'Scheduling_Admin')
     AD_SCHEDULING_USER_GROUP = os.getenv('AD_SCHEDULING_USER_GROUP', 'Scheduling_User')
-    AD_PORTAL_ADMIN_GROUP = os.getenv('AD_PORTAL_ADMIN_GROUP', 'Production_Portal_Admin')
+    AD_PORTAL_ADMIN_GROUP = os.getenv('AD_PORTAL_ADMIN_GROUP', 'Production_Portal_Admin') # <-- ADD THIS LINE
 
+    # Base DN for searches
+    AD_BASE_DN = os.getenv('AD_BASE_DN')
+
+    # Test mode - set to True to bypass AD and use test accounts
     TEST_MODE = os.getenv('TEST_MODE', 'False').lower() == 'true'
 
     # --- Main Application Database (ProductionDB) ---
@@ -58,18 +54,12 @@ class Config:
     ERP_DB_DRIVER = os.getenv('ERP_DB_DRIVER', 'ODBC Driver 17 for SQL Server')
     ERP_DB_TIMEOUT = int(os.getenv('ERP_DB_TIMEOUT', '30'))
 
-    # --- ADDED: SSL Certificate Paths ---
-    SSL_CERT_PATH = os.getenv('SSL_CERT_PATH', 'cert.pem')
-    SSL_KEY_PATH = os.getenv('SSL_KEY_PATH', 'key.pem')
-    # --- END SSL ---
-
     # Email settings (Optional)
     SMTP_SERVER = os.getenv('SMTP_SERVER', 'mail.wepackitall.local')
     SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
     SMTP_USE_TLS = os.getenv('SMTP_USE_TLS', 'True').lower() == 'true'
     EMAIL_FROM = os.getenv('EMAIL_FROM', 'downtime@wepackitall.local')
 
-    # Email notifications mapping (example, adjust as needed)
     EMAIL_NOTIFICATIONS = {
         'Mechanical': ['Maintenance Team', 'Facility Manager'],
         'Electrical': ['Maintenance Team', 'Facility Manager'],
@@ -87,36 +77,22 @@ class Config:
     def validate(cls):
         """Validate required configuration"""
         errors = []
-        # --- Remove old AD validation ---
-        # if not cls.TEST_MODE:
-        #     if not cls.AD_SERVER: errors.append("AD_SERVER is required") ...
 
-        # --- Add Azure AD validation ---
-        if not cls.AAD_CLIENT_ID: errors.append("AAD_CLIENT_ID is required")
-        if not cls.AAD_CLIENT_SECRET: errors.append("AAD_CLIENT_SECRET is required")
-        if not cls.AAD_TENANT_ID: errors.append("AAD_TENANT_ID is required")
-        if not cls.AAD_AUTHORITY: errors.append("AAD_AUTHORITY is required")
+        if not cls.TEST_MODE:
+            if not cls.AD_SERVER: errors.append("AD_SERVER is required")
+            if not cls.AD_DOMAIN: errors.append("AD_DOMAIN is required")
+            if not cls.AD_BASE_DN: errors.append("AD_BASE_DN is required")
 
-        # --- DB validation ---
         if not cls.DB_SERVER: errors.append("DB_SERVER is required")
+
         if not cls.DB_USE_WINDOWS_AUTH:
             if not cls.DB_USERNAME: errors.append("DB_USERNAME is required when not using Windows Auth")
             if not cls.DB_PASSWORD: errors.append("DB_PASSWORD is required when not using Windows Auth")
-
-        # --- ERP validation ---
-        if not cls.ERP_DB_SERVER: errors.append("ERP_DB_SERVER is required")
-        if not cls.ERP_DB_NAME: errors.append("ERP_DB_NAME is required")
-        if not cls.ERP_DB_USERNAME: errors.append("ERP_DB_USERNAME is required")
-        if not cls.ERP_DB_PASSWORD: errors.append("ERP_DB_PASSWORD is required")
-
-        # --- ADDED: SSL File Validation ---
-        if not os.path.exists(cls.SSL_CERT_PATH): errors.append(f"SSL_CERT_PATH not found at '{cls.SSL_CERT_PATH}'")
-        if not os.path.exists(cls.SSL_KEY_PATH): errors.append(f"SSL_KEY_PATH not found at '{cls.SSL_KEY_PATH}'")
-        # --- END SSL ---
 
         if errors:
             print("Configuration errors:")
             for error in errors:
                 print(f"  - {error}")
             return False
+
         return True

@@ -5,7 +5,7 @@
 {% block navbar_title %}🏭 Production Portal{% endblock %}
 
 {% block nav_links %}
-{% if user and user.is_portal_admin %} {# Check the flag #}
+{% if user.is_admin %}
 <a href="/status">System Status</a>
 {% endif %}
 <a href="/logout">Logout</a>
@@ -49,10 +49,13 @@
         color: white;
     }
 
+    /* --- Style for Local Admin badge --- */
     .badge-local-admin {
-        background: var(--accent-orange);
+        background: var(--accent-orange); /* Example: Orange for local admin */
         color: white;
     }
+    /* --- End Style for Local Admin badge --- */
+
 
     .user-info {
         background: var(--gradient-subtle);
@@ -101,12 +104,14 @@
         color: var(--accent-blue);
         font-weight: 600;
     }
+    /* --- Highlight for Portal Admin Group --- */
     .group-tag.portal-admin {
         background: var(--gradient-primary);
         color: white;
         font-weight: 600;
         border: none;
     }
+    /* --- Highlight for Local Admin Group --- */
     .group-tag.local-admin {
         background: var(--accent-orange);
         color: white;
@@ -114,6 +119,8 @@
         border: none;
     }
 
+
+    /* Stats Grid */
     .stats-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -130,14 +137,30 @@
         border: 1px solid var(--border-primary);
         transition: transform 0.2s ease;
     }
-    .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
-    .stat-number { font-size: 32px; font-weight: 700; margin-bottom: 5px; }
+
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+    }
+
+    .stat-number {
+        font-size: 32px;
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+
     .stat-number.blue { color: var(--accent-blue); }
     .stat-number.green { color: var(--accent-green); }
     .stat-number.orange { color: var(--accent-orange); }
     .stat-number.purple { color: var(--accent-purple); }
-    .stat-label { color: var(--text-tertiary); font-size: 14px; font-weight: 500; }
 
+    .stat-label {
+        color: var(--text-tertiary);
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    /* Actions Grid */
     .actions-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -146,29 +169,95 @@
     }
 
     .action-card {
-        background: var(--bg-secondary); border-radius: 10px; padding: 25px;
-        box-shadow: var(--shadow-sm); text-align: center;
-        transition: transform 0.2s, box-shadow 0.2s; cursor: pointer;
-        text-decoration: none; color: inherit; border: 1px solid var(--border-primary);
+        background: var(--bg-secondary);
+        border-radius: 10px;
+        padding: 25px;
+        box-shadow: var(--shadow-sm);
+        text-align: center;
+        transition: transform 0.2s, box-shadow 0.2s;
+        cursor: pointer;
+        text-decoration: none;
+        color: inherit;
+        border: 1px solid var(--border-primary);
     }
-    .action-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-lg); }
-    .action-icon { font-size: 48px; margin-bottom: 15px; }
-    .action-title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
-    .action-desc { font-size: 14px; color: var(--text-tertiary); }
-    .action-card.admin { background: var(--gradient-subtle); border: 2px solid var(--accent-blue); }
-    [data-theme="dark"] .action-card.admin { border-color: var(--accent-blue); background: var(--bg-secondary); }
-    .action-card.logout { background: var(--bg-secondary); border: 2px solid var(--accent-red); }
-    [data-theme="dark"] .action-card.logout { border-color: var(--accent-red); }
 
-    .test-mode-banner { background: #fef5e7; border: 2px solid #ed8936; border-radius: 8px; padding: 15px; margin-bottom: 20px; text-align: center; }
-    [data-theme="dark"] .test-mode-banner { background: rgba(237, 137, 54, 0.1); border-color: var(--accent-orange); color: var(--accent-orange); }
-    .test-mode-banner strong { color: #c05621; }
-    [data-theme="dark"] .test-mode-banner strong { color: var(--accent-orange); }
+    .action-card:hover {
+        transform: translateY(-5px);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .action-icon {
+        font-size: 48px;
+        margin-bottom: 15px;
+    }
+
+    .action-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+
+    .action-desc {
+        font-size: 14px;
+        color: var(--text-tertiary);
+    }
+
+    .action-card.admin {
+        background: var(--gradient-subtle);
+        border: 2px solid var(--accent-blue);
+    }
+
+    [data-theme="dark"] .action-card.admin {
+        border-color: var(--accent-blue);
+        background: var(--bg-secondary);
+    }
+
+    .action-card.logout {
+        background: var(--bg-secondary);
+        border: 2px solid var(--accent-red);
+    }
+
+    [data-theme="dark"] .action-card.logout {
+        border-color: var(--accent-red);
+    }
+
+    .test-mode-banner {
+        background: #fef5e7;
+        border: 2px solid #ed8936;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+
+    [data-theme="dark"] .test-mode-banner {
+        background: rgba(237, 137, 54, 0.1);
+        border-color: var(--accent-orange);
+        color: var(--accent-orange);
+    }
+
+    .test-mode-banner strong {
+        color: #c05621;
+    }
+
+    [data-theme="dark"] .test-mode-banner strong {
+        color: var(--accent-orange);
+    }
 
     @media (max-width: 768px) {
-        .info-row { flex-direction: column; }
-        .info-label { margin-bottom: 5px; }
-        .actions-grid, .stats-grid { grid-template-columns: 1fr; }
+        .info-row {
+            flex-direction: column;
+        }
+
+        .info-label {
+            margin-bottom: 5px;
+        }
+
+        .actions-grid,
+        .stats-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 {% endblock %}
@@ -181,133 +270,185 @@
 {% endif %}
 
 <div class="welcome-card">
-    {% if user %}
-        <h2>Welcome, {{ user.display_name }}!
-            {# --- Badge Logic (unchanged) --- #}
-            {% if user.is_portal_admin %}
-                <span class="badge badge-admin">Administrator</span>
-            {% elif user.is_admin %}
-                 <span class="badge badge-admin">Downtime Admin</span>
-            {% elif user.is_scheduling_admin %}
-                 <span class="badge badge-admin">Scheduling Admin</span>
-            {% elif user.is_scheduling_user %}
-                <span class="badge badge-user">Scheduling User</span>
-            {% elif user.is_user %}
-                <span class="badge badge-user">Downtime User</span>
-            {% endif %}
-            {% if user.username == 'PP_Local_Admin' %}
-                 <span class="badge badge-local-admin">Local Admin</span>
-            {% endif %}
-        </h2>
+    <h2>Welcome, {{ user.display_name }}!
+        {# --- Updated Badge Logic --- #}
+        {% if user.is_portal_admin %}
+            <span class="badge badge-admin">Administrator</span> {# Portal Admin is highest #}
+        {% elif user.is_admin %}
+             <span class="badge badge-admin">Downtime Admin</span>
+        {% elif user.is_scheduling_admin %}
+             <span class="badge badge-admin">Scheduling Admin</span>
+        {% elif user.is_scheduling_user %}
+            <span class="badge badge-user">Scheduling User</span>
+        {% elif user.is_user %}
+            <span class="badge badge-user">Downtime User</span>
+        {% endif %}
+        {# --- Add badge for local admin --- #}
+        {% if user.username == 'production_portal_admin' %}
+             <span class="badge badge-local-admin">Local Admin</span>
+        {% endif %}
+    </h2>
 
-        <div class="user-info">
-            <div class="info-row">
-                <div class="info-label">Username:</div>
-                <div class="info-value">{{ user.username }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">Email:</div>
-                <div class="info-value">{{ user.email }}</div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">Access Level:</div>
-                <div class="info-value">
-                    {# --- Access Level Description (unchanged) --- #}
-                    {% if user.is_portal_admin %} Full Administrative Access
-                    {% elif user.is_admin and user.is_scheduling_admin %} Downtime & Scheduling Admin
-                    {% elif user.is_admin %} Downtime Admin Only
-                    {% elif user.is_scheduling_admin %} Scheduling Admin Only
-                    {% elif user.is_scheduling_user %} Scheduling Read-Only
-                    {% elif user.is_user %} Downtime Entry Only
-                    {% else %} No specific role assigned {% endif %}
-                </div>
-            </div>
-            <div class="info-row">
-                <div class="info-label">Portal Roles:</div>
-                <div class="info-value">
-                     {# --- Portal Roles Display (unchanged) --- #}
-                    {% if user.username == 'PP_Local_Admin' %}
-                        <span class="group-tag local-admin">Local Admin</span>
-                    {% else %}
-                        {% set roles_found = [] %}
-                        {% if user.is_portal_admin %} {% set _ = roles_found.append(('Portal Admin', 'portal-admin')) %}{% endif %}
-                        {% if user.is_admin %} {% set _ = roles_found.append(('Downtime Admin', 'highlight')) %}{% endif %}
-                        {% if user.is_scheduling_admin %} {% set _ = roles_found.append(('Scheduling Admin', 'highlight')) %}{% endif %}
-                        {% if user.is_scheduling_user %} {% set _ = roles_found.append(('Scheduling User', 'group-tag')) %}{% endif %}
-                        {% if user.is_user %} {% set _ = roles_found.append(('Downtime User', 'group-tag')) %}{% endif %}
-                        {% if roles_found %}
-                             {% for role_name, role_class in roles_found %} <span class="group-tag {{ role_class }}">{{ role_name }}</span> {% endfor %}
-                        {% else %} <span style="color: var(--text-tertiary);">No specific portal roles assigned.</span> {% endif %}
-                    {% endif %}
-                </div>
+    <div class="user-info">
+        <div class="info-row">
+            <div class="info-label">Username:</div>
+            <div class="info-value">{{ user.username }}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Email:</div>
+            <div class="info-value">{{ user.email }}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Access Level:</div>
+            <div class="info-value">
+                {# --- Updated Access Level Description --- #}
+                {% if user.is_portal_admin %}
+                    Full Administrative Access
+                {% elif user.is_admin and user.is_scheduling_admin %}
+                    Downtime & Scheduling Admin
+                {% elif user.is_admin %}
+                    Downtime Admin Only
+                {% elif user.is_scheduling_admin %}
+                    Scheduling Admin Only
+                {% elif user.is_scheduling_user %}
+                    Scheduling Read-Only
+                {% elif user.is_user %}
+                    Downtime Entry Only
+                {% else %}
+                    No specific role assigned
+                {% endif %}
             </div>
         </div>
-    {% else %}
-         <h2>Welcome!</h2>
-         <p style="color: var(--text-tertiary);">User information not available in session.</p>
-    {% endif %}
+        <div class="info-row">
+            <div class="info-label">AD Groups:</div>
+            <div class="info-value">
+                {# --- START: Updated Group Display Logic --- #}
+                {% set relevant_groups = [
+                    config.AD_ADMIN_GROUP,
+                    config.AD_USER_GROUP,
+                    config.AD_SCHEDULING_ADMIN_GROUP,
+                    config.AD_SCHEDULING_USER_GROUP,
+                    config.AD_PORTAL_ADMIN_GROUP
+                ] %}
+                {% if user.groups %}
+                    {% for group in user.groups %}
+                        {% set group_class = 'group-tag' %}
+                        {% if group == config.AD_PORTAL_ADMIN_GROUP %}
+                            {% set group_class = group_class ~ ' portal-admin' %}
+                        {% elif group == 'LocalAdmin' %}
+                            {% set group_class = group_class ~ ' local-admin' %}
+                        {% elif group in relevant_groups %}
+                             {% set group_class = group_class ~ ' highlight' %}
+                        {% endif %}
+                        <span class="{{ group_class }}">{{ group }}</span>
+                    {% endfor %}
+                {% else %}
+                     <span style="color: var(--text-tertiary);">No groups found.</span>
+                {% endif %}
+                {# --- END: Updated Group Display Logic --- #}
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="stats-grid">
-    {# --- Stats Cards (unchanged) --- #}
-    <div class="stat-card"> <div class="stat-number blue">{{ stats.facilities }}</div> <div class="stat-label">Active Facilities</div> </div>
-    <div class="stat-card"> <div class="stat-number green">{{ stats.production_lines }}</div> <div class="stat-label">Production Lines</div> </div>
-    <div class="stat-card"> <div class="stat-number orange">{{ stats.recent_downtime_count }}</div> <div class="stat-label">Downtime Events (7 days)</div> </div>
-    <div class="stat-card"> <div class="stat-number purple">{{ stats.categories }}</div> <div class="stat-label">Downtime Categories</div> </div>
+    <div class="stat-card">
+        <div class="stat-number blue">{{ stats.facilities }}</div>
+        <div class="stat-label">Active Facilities</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number green">{{ stats.production_lines }}</div>
+        <div class="stat-label">Production Lines</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number orange">{{ stats.recent_downtime_count }}</div>
+        <div class="stat-label">Downtime Events (7 days)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number purple">{{ stats.categories }}</div>
+        <div class="stat-label">Downtime Categories</div>
+    </div>
 </div>
 
 <div class="actions-grid">
-    {# --- START: Conditional Rendering based on Permission Matrix --- #}
-
-    {# Admin Panel: Requires Downtime_Admin_AZ OR Scheduling_Admin_AZ OR Production_Portal_Admin_AZ (or Local Admin) #}
+    {# Admin Panel: DT_Admin, Sched_Admin, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) %}
-        <a href="/admin" class="action-card admin"> <div class="action-icon">⚙️</div> <div class="action-title">Admin Panel</div> <div class="action-desc">Manage facilities, lines, and settings</div> </a>
+    <a href="/admin" class="action-card admin">
+        <div class="action-icon">⚙️</div>
+        <div class="action-title">Admin Panel</div>
+        <div class="action-desc">Manage facilities, lines, and settings</div>
+    </a>
     {% endif %}
 
-    {# Scheduling: Requires Scheduling_Admin_AZ OR Scheduling_User_AZ OR Production_Portal_Admin_AZ (or Local Admin) #}
+    {# Scheduling: Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_scheduling_admin(session) or require_scheduling_user(session) %}
-        <a href="{{ url_for('scheduling.index') }}" class="action-card admin"> <div class="action-icon">🗓️</div> <div class="action-title">Scheduling</div> <div class="action-desc">Manage production projections for open orders.</div> </a>
+    <a href="{{ url_for('scheduling.index') }}" class="action-card admin">
+        <div class="action-icon">🗓️</div>
+        <div class="action-title">Scheduling</div>
+        <div class="action-desc">Manage production projections for open orders.</div>
+    </a>
     {% endif %}
 
-    {# BOM Viewer: Requires Downtime_Admin_AZ OR Scheduling_Admin_AZ OR Scheduling_User_AZ OR Production_Portal_Admin_AZ (or Local Admin) #}
+    {# BOM Viewer: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
-        <a href="{{ url_for('bom.view_boms') }}" class="action-card"> <div class="action-icon">📜</div> <div class="action-title">BOM Viewer</div> <div class="action-desc">Browse Bill of Materials data from the ERP.</div> </a>
+    <a href="{{ url_for('bom.view_boms') }}" class="action-card">
+        <div class="action-icon">📜</div>
+        <div class="action-title">BOM Viewer</div>
+        <div class="action-desc">Browse Bill of Materials data from the ERP.</div>
+    </a>
     {% endif %}
 
-    {# PO Viewer: Requires Downtime_Admin_AZ OR Scheduling_Admin_AZ OR Scheduling_User_AZ OR Production_Portal_Admin_AZ (or Local Admin) #}
+    {# PO Viewer: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
-        <a href="{{ url_for('po.view_pos') }}" class="action-card"> <div class="action-icon">📦</div> <div class="action-title">PO Viewer</div> <div class="action-desc">Browse open Purchase Orders from the ERP.</div> </a>
+    <a href="{{ url_for('po.view_pos') }}" class="action-card">
+        <div class="action-icon">📦</div>
+        <div class="action-title">PO Viewer</div>
+        <div class="action-desc">Browse open Purchase Orders from the ERP.</div>
+    </a>
     {% endif %}
 
-    {# --- MODIFIED: MRP Suggestions Access Check --- #}
-    {# MRP Suggestions: Requires Scheduling_Admin_AZ OR Scheduling_User_AZ OR Production_Portal_Admin_AZ (or Local Admin) #}
-    {% if require_scheduling_admin(session) or require_scheduling_user(session) %}
-        <a href="{{ url_for('mrp.view_mrp') }}" class="action-card admin"> <div class="action-icon">🧠</div> <div class="action-title">MRP Suggestions</div> <div class="action-desc">View production suggestions based on material availability.</div> </a>
+    {# MRP Suggestions: Sched_Admin, Portal_Admin #}
+    {% if require_scheduling_admin(session) %} {# This helper includes Portal_Admin & LocalAdmin #}
+    <a href="{{ url_for('mrp.view_mrp') }}" class="action-card admin">
+        <div class="action-icon">🧠</div>
+        <div class="action-title">MRP Suggestions</div>
+        <div class="action-desc">View production suggestions based on material availability.</div>
+    </a>
     {% endif %}
 
-    {# Customer Analysis: Requires Scheduling_Admin_AZ OR Scheduling_User_AZ OR Production_Portal_Admin_AZ (or Local Admin) #}
-    {% if require_scheduling_admin(session) or require_scheduling_user(session) %} {# <-- ADDED require_scheduling_user #}
-        <a href="{{ url_for('sales.customer_analysis') }}" class="action-card"> <div class="action-icon">🧑‍💼</div> <div class="action-title">Customer Analysis</div> <div class="action-desc">Review customer performance and sales data.</div> </a>
+     {# Customer Analysis: Sched_Admin, Portal_Admin #}
+    {% if require_scheduling_admin(session) %} {# This helper includes Portal_Admin & LocalAdmin #}
+     <a href="{{ url_for('sales.customer_analysis') }}" class="action-card">
+        <div class="action-icon">🧑‍💼</div>
+        <div class="action-title">Customer Analysis</div>
+        <div class="action-desc">Review customer performance and sales data.</div>
+    </a>
     {% endif %}
 
-    {# Report Downtime: Requires Downtime_Admin_AZ OR Downtime_User_AZ OR Production_Portal_Admin_AZ (or Local Admin) #}
+    {# Report Downtime: DT_Admin, DT_User, Portal_Admin #}
     {% if require_admin(session) or require_user(session) %}
-        <a href="/downtime" class="action-card"> <div class="action-icon">📝</div> <div class="action-title">Report Downtime</div> <div class="action-desc">Record production downtime events</div> </a>
+    <a href="/downtime" class="action-card">
+        <div class="action-icon">📝</div>
+        <div class="action-title">Report Downtime</div>
+        <div class="action-desc">Record production downtime events</div>
+    </a>
     {% endif %}
 
-    {# View Reports: Requires Downtime_Admin_AZ OR Scheduling_Admin_AZ OR Scheduling_User_AZ OR Production_Portal_Admin_AZ (or Local Admin) #}
+    {# View Reports: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
-        <a href="{{ url_for('reports.hub') }}" class="action-card">
-            <div class="action-icon">📊</div>
-            <div class="action-title">View Reports</div>
-            <div class="action-desc">View downtime reports and analytics</div>
-        </a>
+    <a href="{{ url_for('reports.hub') }}" class="action-card">
+        <div class="action-icon">📊</div>
+        <div class="action-title">View Reports</div>
+        <div class="action-desc">View downtime reports and analytics</div>
+    </a>
     {% endif %}
 
-    {# Logout: Always available #}
-    <a href="/logout" class="action-card logout"> <div class="action-icon">🚪</div> <div class="action-title">Logout</div> <div class="action-desc">Sign out of your account</div> </a>
-
-    {# --- END: Conditional Rendering --- #}
+    {# Logout: Always available for logged-in users #}
+    <a href="/logout" class="action-card logout">
+        <div class="action-icon">🚪</div>
+        <div class="action-title">Logout</div>
+        <div class="action-desc">Sign out of your account</div>
+    </a>
 </div>
 {% endblock %}
 
