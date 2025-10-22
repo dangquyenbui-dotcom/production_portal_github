@@ -183,5 +183,5 @@ if __name__ == '__main__':
     app.run( #
         host='0.0.0.0', #
         port=5000, #
-        debug=True # Enables detailed error messages and auto-reloading
+        # debug=True # Enables detailed error messages and auto-reloading
     )

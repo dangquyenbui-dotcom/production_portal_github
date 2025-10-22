@@ -1,21 +1,25 @@
 # routes/reports.py
 """
 Reporting routes for generating and viewing system reports.
+CORRECTED: Updated permission checks to align with the matrix.
 """
-# <<< MODIFICATION: Added send_file AND current_app
 from flask import (
     Blueprint, render_template, redirect, url_for, session, request, flash, send_file,
     current_app
 )
-from auth import require_login, require_admin
+# --- MODIFIED: Import more specific permission checkers ---
+from auth import (
+    require_login, require_admin, require_scheduling_admin, require_scheduling_user
+)
+# --- END MODIFICATION ---
 from routes.main import validate_session
 from database import facilities_db, lines_db, get_erp_service
 from database.reports import reports_db
 from datetime import datetime, timedelta
 import traceback
 from collections import OrderedDict
-import io # <<< MODIFICATION: Added io
-from utils.pdf_generator import generate_coc_pdf # <<< MODIFICATION: Import new PDF generator
+import io
+from utils.pdf_generator import generate_coc_pdf
 
 # Helper function
 def safe_float(value, default=0.0):
@@ -34,7 +38,7 @@ def _format_date(date_obj, date_format='%m/%d/%Y', default='N/A'): # Format: MM/
     except AttributeError:
         return default
 
-# ***** HELPER FUNCTION for CoC Report (Unchanged from last step) *****
+# ***** HELPER FUNCTION for CoC Report (Unchanged) *****
 def _get_single_job_details(job_number_str):
     """Fetches and processes data for a single job for the CoC report."""
     if not job_number_str:
@@ -63,7 +67,7 @@ def _get_single_job_details(job_number_str):
 
     finish_job_entries = []
     other_fifo_entries = []
-    
+
     fi_id_to_details_map = {
         row.get('fi_id'): {
             'lot_number': row.get('lot_number', ''),
@@ -88,14 +92,14 @@ def _get_single_job_details(job_number_str):
     for row in other_fifo_entries:
         part_num = row.get('part_number', '')
         part_desc = row.get('part_description', '')
-        lot_num = row.get('lot_number', '') 
-        exp_date = _format_date(row.get('fi_expires')) 
+        lot_num = row.get('lot_number', '')
+        exp_date = _format_date(row.get('fi_expires'))
         action = row.get('fi_action')
         quantity = safe_float(row.get('fi_quant'))
 
-        if not part_num: continue 
+        if not part_num: continue
 
-        agg_key = (part_num, lot_num, exp_date) 
+        agg_key = (part_num, lot_num, exp_date)
 
         if agg_key not in job_data['aggregated_transactions']:
             job_data['aggregated_transactions'][agg_key] = {
@@ -117,8 +121,8 @@ def _get_single_job_details(job_number_str):
         elif action == 'De-issue':
             job_data['aggregated_transactions'][agg_key]['Ending Inventory'] += quantity
 
-    relieve_pointer = 0 
-    processed_relieve_ids = set() 
+    relieve_pointer = 0
+    processed_relieve_ids = set()
 
     for fj_entry in finish_job_entries:
         fj_timestamp = fj_entry['timestamp']
@@ -128,7 +132,7 @@ def _get_single_job_details(job_number_str):
             relieve_timestamp = relieve_row.get('f2_recdate')
             relieve_id = relieve_row.get('f2_id')
 
-            if relieve_id is None: 
+            if relieve_id is None:
                 print(f"Warning: Relieve transaction missing unique ID: {relieve_row}")
                 continue
 
@@ -137,14 +141,14 @@ def _get_single_job_details(job_number_str):
                     part_num = relieve_row.get('part_number', '')
                     part_desc = relieve_row.get('part_description', '')
                     quantity = safe_float(relieve_row.get('net_quantity'))
-                    
+
                     linked_fi_id = relieve_row.get('f2_fiid')
                     details = fi_id_to_details_map.get(linked_fi_id, {'lot_number': '', 'exp_date': 'N/A'})
                     lot_num = details['lot_number']
                     exp_date = details['exp_date']
 
-                    if not part_num: continue 
-                    
+                    if not part_num: continue
+
                     agg_key = (part_num, lot_num, exp_date)
 
                     if agg_key not in job_data['aggregated_transactions']:
@@ -163,7 +167,7 @@ def _get_single_job_details(job_number_str):
                          job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
 
                     job_data['aggregated_transactions'][agg_key]['Packaged Qty'] += quantity
-                    processed_relieve_ids.add(relieve_id) 
+                    processed_relieve_ids.add(relieve_id)
 
                 relieve_pointer = i + 1
 
@@ -172,7 +176,7 @@ def _get_single_job_details(job_number_str):
 
     for agg_key, summary in job_data['aggregated_transactions'].items():
         issued = summary.get('Starting Lot Qty', 0.0)
-        relieve = summary.get('Packaged Qty', 0.0) 
+        relieve = summary.get('Packaged Qty', 0.0)
         deissue = summary.get('Ending Inventory', 0.0)
         yield_cost = issued - relieve - deissue
         summary['Yield Cost/Scrap'] = yield_cost
@@ -180,11 +184,11 @@ def _get_single_job_details(job_number_str):
 
     job_data['aggregated_list'] = [
         summary for summary in job_data['aggregated_transactions'].values()
-        if not summary.get('part_number', '').startswith('0800-') 
+        if not summary.get('part_number', '').startswith('0800-')
            and summary.get('part_number', '') != job_data['part_number']
     ]
     job_data['aggregated_list'].sort(key=lambda x: (
-        x.get('part_number', ''), 
+        x.get('part_number', ''),
         x.get('lot_number', ''),
         x.get('exp_date', '')
     ))
@@ -198,7 +202,7 @@ def _get_single_job_details(job_number_str):
                 'lots': []
             }
         grouped_list[part_num]['lots'].append(summary)
-    
+
     job_data['grouped_list'] = grouped_list
 
     return job_data
@@ -207,24 +211,32 @@ def _get_single_job_details(job_number_str):
 
 reports_bp = Blueprint('reports', __name__, url_prefix='/reports')
 
+# --- MODIFIED: Define the required access level for reports ---
+REQUIRED_REPORT_ACCESS = lambda s: require_admin(s) or require_scheduling_admin(s) or require_scheduling_user(s)
+# --- END MODIFICATION ---
+
 @reports_bp.route('/')
-# ... (hub route is unchanged) ...
+@validate_session # Use validate_session decorator
 def hub():
     if not require_login(session):
         return redirect(url_for('main.login'))
-    if not require_admin(session):
-        flash('Admin privileges are required to view reports.', 'error')
+    # --- MODIFIED: Use the broader access check ---
+    if not REQUIRED_REPORT_ACCESS(session):
+        flash('Report viewing privileges are required to access this page.', 'error')
         return redirect(url_for('main.dashboard'))
+    # --- END MODIFICATION ---
     return render_template('reports/hub.html', user=session['user'])
 
 @reports_bp.route('/downtime-summary')
-# ... (downtime_summary route is unchanged) ...
+@validate_session # Use validate_session decorator
 def downtime_summary():
     if not require_login(session):
         return redirect(url_for('main.login'))
-    if not require_admin(session):
-        flash('Admin privileges are required to view reports.', 'error')
+    # --- MODIFIED: Use the broader access check ---
+    if not REQUIRED_REPORT_ACCESS(session):
+        flash('Report viewing privileges are required to view reports.', 'error')
         return redirect(url_for('main.dashboard'))
+    # --- END MODIFICATION ---
 
     today = datetime.now()
     start_date_str = request.args.get('start_date', (today - timedelta(days=7)).strftime('%Y-%m-%d'))
@@ -250,11 +262,15 @@ def downtime_summary():
     )
 
 @reports_bp.route('/shipment-forecast')
-# ... (shipment_forecast route is unchanged) ...
+@validate_session # Use validate_session decorator
 def shipment_forecast():
-    if not require_login(session) or not require_admin(session):
-        flash('Admin privileges are required to view reports.', 'error')
+    if not require_login(session):
+        return redirect(url_for('main.login'))
+    # --- MODIFIED: Use the broader access check ---
+    if not REQUIRED_REPORT_ACCESS(session):
+        flash('Report viewing privileges are required to view reports.', 'error')
         return redirect(url_for('main.dashboard'))
+    # --- END MODIFICATION ---
     try:
         forecast_data = reports_db.get_shipment_forecast()
     except Exception as e:
@@ -265,9 +281,13 @@ def shipment_forecast():
 @reports_bp.route('/coc', methods=['GET'])
 @validate_session
 def coc_report():
-    if not require_admin(session):
-        flash('Admin privileges are required to view this report.', 'error')
+    if not require_login(session): # Added login check
+        return redirect(url_for('main.login'))
+    # --- MODIFIED: Use the broader access check ---
+    if not REQUIRED_REPORT_ACCESS(session):
+        flash('Report viewing privileges are required to view this report.', 'error')
         return redirect(url_for('main.dashboard'))
+    # --- END MODIFICATION ---
 
     job_number_param = request.args.get('job_number', '').strip()
     job_details = None
@@ -293,16 +313,19 @@ def coc_report():
         error_message=error_message
     )
 
-# <<< MODIFICATION: Added new route for PDF export
 @reports_bp.route('/coc/pdf', methods=['GET'])
 @validate_session
 def coc_report_pdf():
     """
     Generates and serves a PDF version of the CoC report.
     """
-    if not require_admin(session):
-        flash('Admin privileges are required to export reports.', 'error')
+    if not require_login(session): # Added login check
+        return redirect(url_for('main.login'))
+    # --- MODIFIED: Use the broader access check ---
+    if not REQUIRED_REPORT_ACCESS(session):
+        flash('Report viewing privileges are required to export reports.', 'error')
         return redirect(url_for('main.dashboard'))
+    # --- END MODIFICATION ---
 
     job_number_param = request.args.get('job_number', '').strip()
     if not job_number_param:
@@ -312,19 +335,17 @@ def coc_report_pdf():
     try:
         # Get the same data as the web page
         job_details = _get_single_job_details(job_number_param)
-        
+
         if not job_details or 'error' in job_details:
             error_message = job_details.get('error', 'Job not found')
             flash(f'Could not generate PDF: {error_message}', 'error')
             return redirect(url_for('reports.coc_report', job_number=job_number_param))
-        
-        # <<< MODIFICATION: Get app root path while in context
+
         app_root_path = current_app.root_path
-        
+
         # Generate the PDF
-        # <<< MODIFICATION: Pass the path to the generator
         pdf_buffer, filename = generate_coc_pdf(job_details, app_root_path)
-        
+
         # Send the PDF as a file download
         return send_file(
             pdf_buffer,

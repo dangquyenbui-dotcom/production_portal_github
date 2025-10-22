@@ -11,7 +11,7 @@ from config import Config
 
 # --- START: Local Admin Configuration ---
 LOCAL_ADMIN_USERNAME = 'production_portal_admin'
-LOCAL_ADMIN_PASSWORD_HASH = 'pbkdf2:sha256:1000000$7GUCiDMbjttS4Sa9$87463836cef236308961cbf57d01a4cd1b14e79c7bbd707ff15faa6a947c1609'
+LOCAL_ADMIN_PASSWORD_HASH = 'pbkdf2:sha256:1000000$WJGhv0S4168kLXQq$de28edda0e790db12bc141a1bb3d6fa95eafe66d0c31c9ad8213d3f5d5f117db'
 # --- END: Local Admin Configuration ---
 
 def get_user_groups(username):
