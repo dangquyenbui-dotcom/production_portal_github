@@ -2,6 +2,7 @@
 """
 Reporting routes for generating and viewing system reports.
 CORRECTED: Updated permission checks to align with the matrix.
+FIXED: CoC report aggregation key to combine rows with null/empty lot/exp date.
 """
 from flask import (
     Blueprint, render_template, redirect, url_for, session, request, flash, send_file,
@@ -34,11 +35,14 @@ def _format_date(date_obj, date_format='%m/%d/%Y', default='N/A'): # Format: MM/
     if date_obj is None:
         return default
     try:
+        # Check for common default/invalid dates from ERP if necessary
+        if isinstance(date_obj, datetime) and date_obj.year <= 1900:
+            return default
         return date_obj.strftime(date_format)
-    except AttributeError:
+    except (AttributeError, ValueError): # Added ValueError for invalid date objects
         return default
 
-# ***** HELPER FUNCTION for CoC Report (Unchanged) *****
+# ***** HELPER FUNCTION for CoC Report *****
 def _get_single_job_details(job_number_str):
     """Fetches and processes data for a single job for the CoC report."""
     if not job_number_str:
@@ -68,59 +72,69 @@ def _get_single_job_details(job_number_str):
     finish_job_entries = []
     other_fifo_entries = []
 
+    # Map fi_id to lot and formatted expiration date for relieve linking
     fi_id_to_details_map = {
         row.get('fi_id'): {
-            'lot_number': row.get('lot_number', ''),
-            'exp_date': _format_date(row.get('fi_expires'))
+            'lot_number': row.get('lot_number', ''), # Already normalized to '' if NULL by query
+            'exp_date_raw': row.get('fi_expires') # Store raw date
         }
         for row in fifo_details if row.get('fi_id')
     }
 
+    # Process FIFO details first
     for row in fifo_details:
         action = row.get('fi_action')
         timestamp = row.get('fi_recdate')
         quantity = safe_float(row.get('fi_quant'))
 
+        # Separate 'Finish Job' transactions
         if action == 'Finish Job' and timestamp:
             finish_job_entries.append({'timestamp': timestamp, 'quantity': quantity})
             job_data['completed_qty'] += quantity
         else:
-            other_fifo_entries.append(row)
+            # Aggregate other FIFO transactions
+            part_num = row.get('part_number', '')
+            part_desc = row.get('part_description', '')
+            # --- MODIFICATION START: Normalize key components ---
+            raw_lot_num = row.get('lot_number', '') # Query defaults NULL to ''
+            normalized_lot_num = raw_lot_num if raw_lot_num else 'N/A' # Use 'N/A' for empty/null lots in key
 
+            raw_exp_date = row.get('fi_expires')
+            formatted_exp_date = _format_date(raw_exp_date) # Format FIRST
+            normalized_exp_date = formatted_exp_date # Use the formatted string ('N/A' or date) in key
+            
+            agg_key = (part_num, normalized_lot_num, normalized_exp_date)
+            # --- MODIFICATION END ---
+
+            if not part_num: continue
+
+            if agg_key not in job_data['aggregated_transactions']:
+                job_data['aggregated_transactions'][agg_key] = {
+                    'part_number': part_num,
+                    'part_description': part_desc,
+                    'lot_number': normalized_lot_num, # Store normalized version
+                    'exp_date': normalized_exp_date, # Store normalized version
+                    'Starting Lot Qty': 0.0,
+                    'Ending Inventory': 0.0,
+                    'Packaged Qty': 0.0,
+                    'Yield Cost/Scrap': 0.0,
+                    'Yield Loss': 0.0
+                }
+            # Update description if it was missing initially
+            if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
+                 job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
+
+            # Aggregate quantities based on action
+            if action == 'Issued inventory':
+                job_data['aggregated_transactions'][agg_key]['Starting Lot Qty'] += quantity
+            elif action == 'De-issue':
+                job_data['aggregated_transactions'][agg_key]['Ending Inventory'] += quantity
+            # Handle other FIFO actions if necessary
+
+    # Sort 'Finish Job' entries chronologically
     finish_job_entries.sort(key=lambda x: x['timestamp'])
 
-    for row in other_fifo_entries:
-        part_num = row.get('part_number', '')
-        part_desc = row.get('part_description', '')
-        lot_num = row.get('lot_number', '')
-        exp_date = _format_date(row.get('fi_expires'))
-        action = row.get('fi_action')
-        quantity = safe_float(row.get('fi_quant'))
-
-        if not part_num: continue
-
-        agg_key = (part_num, lot_num, exp_date)
-
-        if agg_key not in job_data['aggregated_transactions']:
-            job_data['aggregated_transactions'][agg_key] = {
-                'part_number': part_num,
-                'part_description': part_desc,
-                'lot_number': lot_num,
-                'exp_date': exp_date,
-                'Starting Lot Qty': 0.0,
-                'Ending Inventory': 0.0,
-                'Packaged Qty': 0.0,
-                'Yield Cost/Scrap': 0.0,
-                'Yield Loss': 0.0
-            }
-        if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
-             job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
-
-        if action == 'Issued inventory':
-            job_data['aggregated_transactions'][agg_key]['Starting Lot Qty'] += quantity
-        elif action == 'De-issue':
-            job_data['aggregated_transactions'][agg_key]['Ending Inventory'] += quantity
-
+    # Process Relieve Job transactions (dtfifo2) chronologically up to each 'Finish Job' timestamp
     relieve_pointer = 0
     processed_relieve_ids = set()
 
@@ -130,69 +144,93 @@ def _get_single_job_details(job_number_str):
         for i in range(relieve_pointer, len(relieve_details)):
             relieve_row = relieve_details[i]
             relieve_timestamp = relieve_row.get('f2_recdate')
-            relieve_id = relieve_row.get('f2_id')
+            relieve_id = relieve_row.get('f2_id') # Unique ID for dtfifo2 row
 
             if relieve_id is None:
                 print(f"Warning: Relieve transaction missing unique ID: {relieve_row}")
-                continue
+                continue # Skip if we can't uniquely identify
 
+            # Process relieve transactions that occurred up to or at the same time as the current Finish Job
             if relieve_timestamp and relieve_timestamp <= fj_timestamp:
+                # Ensure we haven't already processed this specific relieve transaction ID
                 if relieve_id not in processed_relieve_ids:
                     part_num = relieve_row.get('part_number', '')
                     part_desc = relieve_row.get('part_description', '')
-                    quantity = safe_float(relieve_row.get('net_quantity'))
+                    quantity = safe_float(relieve_row.get('net_quantity')) # Use net_quantity from query
 
+                    # Link back to the original FIFO entry to get lot/exp date
                     linked_fi_id = relieve_row.get('f2_fiid')
-                    details = fi_id_to_details_map.get(linked_fi_id, {'lot_number': '', 'exp_date': 'N/A'})
-                    lot_num = details['lot_number']
-                    exp_date = details['exp_date']
+                    details = fi_id_to_details_map.get(linked_fi_id, {'lot_number': '', 'exp_date_raw': None})
+
+                    # --- MODIFICATION START: Normalize key components ---
+                    raw_lot_num = details['lot_number'] # Already normalized to '' if NULL by query
+                    normalized_lot_num = raw_lot_num if raw_lot_num else 'N/A'
+
+                    raw_exp_date = details['exp_date_raw']
+                    formatted_exp_date = _format_date(raw_exp_date) # Format FIRST
+                    normalized_exp_date = formatted_exp_date
+
+                    agg_key = (part_num, normalized_lot_num, normalized_exp_date)
+                    # --- MODIFICATION END ---
+
 
                     if not part_num: continue
 
-                    agg_key = (part_num, lot_num, exp_date)
-
+                    # Initialize aggregation dictionary if key doesn't exist
                     if agg_key not in job_data['aggregated_transactions']:
                         job_data['aggregated_transactions'][agg_key] = {
                             'part_number': part_num,
                             'part_description': part_desc,
-                            'lot_number': lot_num,
-                            'exp_date': exp_date,
+                            'lot_number': normalized_lot_num, # Store normalized version
+                            'exp_date': normalized_exp_date, # Store normalized version
                             'Starting Lot Qty': 0.0,
                             'Ending Inventory': 0.0,
                             'Packaged Qty': 0.0,
                             'Yield Cost/Scrap': 0.0,
                             'Yield Loss': 0.0
                         }
+                     # Update description if it was missing initially
                     if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
                          job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
 
+                    # Add the relieved quantity to 'Packaged Qty'
                     job_data['aggregated_transactions'][agg_key]['Packaged Qty'] += quantity
-                    processed_relieve_ids.add(relieve_id)
+                    processed_relieve_ids.add(relieve_id) # Mark this specific transaction ID as processed
 
-                relieve_pointer = i + 1
+                # Move the pointer forward ONLY if this transaction was processed
+                # (prevents infinite loop if multiple transactions have same timestamp)
+                if relieve_id in processed_relieve_ids:
+                    relieve_pointer = i + 1
 
             elif relieve_timestamp and relieve_timestamp > fj_timestamp:
-                break
+                 # Stop processing relieve transactions for this 'Finish Job' timestamp
+                 break # Go to the next 'Finish Job' entry
 
+    # Calculate Yields after all transactions are aggregated
     for agg_key, summary in job_data['aggregated_transactions'].items():
         issued = summary.get('Starting Lot Qty', 0.0)
-        relieve = summary.get('Packaged Qty', 0.0)
+        relieve = summary.get('Packaged Qty', 0.0) # This now includes dtfifo2 'Relieve Job'
         deissue = summary.get('Ending Inventory', 0.0)
         yield_cost = issued - relieve - deissue
         summary['Yield Cost/Scrap'] = yield_cost
+        # Prevent division by zero
         summary['Yield Loss'] = (yield_cost / relieve) * 100.0 if relieve != 0 else 0.0
 
+    # Create the final list for display, filtering out unwanted parts
     job_data['aggregated_list'] = [
         summary for summary in job_data['aggregated_transactions'].values()
+        # Filter out 0800- parts AND the main finished good itself
         if not summary.get('part_number', '').startswith('0800-')
            and summary.get('part_number', '') != job_data['part_number']
     ]
+    # Sort the final list
     job_data['aggregated_list'].sort(key=lambda x: (
         x.get('part_number', ''),
-        x.get('lot_number', ''),
-        x.get('exp_date', '')
+        x.get('lot_number', ''), # Sorting by 'N/A' or actual lot
+        x.get('exp_date', '')   # Sorting by 'N/A' or actual formatted date
     ))
 
+    # Group by part number for display (no changes needed here)
     grouped_list = OrderedDict()
     for summary in job_data['aggregated_list']:
         part_num = summary.get('part_number', '')
@@ -204,6 +242,10 @@ def _get_single_job_details(job_number_str):
         grouped_list[part_num]['lots'].append(summary)
 
     job_data['grouped_list'] = grouped_list
+
+
+    # Remove the no longer needed intermediate structure
+    del job_data['aggregated_transactions']
 
     return job_data
 # ***** END HELPER FUNCTION *****
