@@ -3,6 +3,9 @@
 Reporting routes for generating and viewing system reports.
 CORRECTED: Updated permission checks to align with the matrix.
 FIXED: CoC report aggregation key to combine rows with null/empty lot/exp date.
+FIXED: More robust lot number normalization in CoC report aggregation.
+FIXED: Relieve Job aggregation to use existing lot if linked FIFO record lacks one.
+ADDED: Debug logging for CoC lot number processing.
 """
 from flask import (
     Blueprint, render_template, redirect, url_for, session, request, flash, send_file,
@@ -48,15 +51,20 @@ def _get_single_job_details(job_number_str):
     if not job_number_str:
         return None
 
+    print(f"--- CoC Report DEBUG: Starting job {job_number_str} ---") # DEBUG LOG
+
     erp_service = get_erp_service()
     raw_data = erp_service.get_coc_report_data(job_number_str)
 
     if not raw_data or not raw_data.get("header"):
+        print(f"--- CoC Report DEBUG: Job header not found for {job_number_str} ---") # DEBUG LOG
         return {'error': f"Job '{job_number_str}' not found in the ERP system."}
 
     header = raw_data["header"]
     fifo_details = raw_data.get("fifo_details", [])
     relieve_details = raw_data.get("relieve_details", [])
+
+    print(f"--- CoC Report DEBUG: Fetched {len(fifo_details)} FIFO details and {len(relieve_details)} relieve details ---") # DEBUG LOG
 
     job_data = {
         'job_number': str(header['jo_jobnum']),
@@ -86,6 +94,7 @@ def _get_single_job_details(job_number_str):
         action = row.get('fi_action')
         timestamp = row.get('fi_recdate')
         quantity = safe_float(row.get('fi_quant'))
+        fi_id = row.get('fi_id') # Get fi_id for logging
 
         # Separate 'Finish Job' transactions
         if action == 'Finish Job' and timestamp:
@@ -95,16 +104,23 @@ def _get_single_job_details(job_number_str):
             # Aggregate other FIFO transactions
             part_num = row.get('part_number', '')
             part_desc = row.get('part_description', '')
-            # --- MODIFICATION START: Normalize key components ---
+
+            # --- More robust lot number normalization ---
             raw_lot_num = row.get('lot_number', '') # Query defaults NULL to ''
-            normalized_lot_num = raw_lot_num if raw_lot_num else 'N/A' # Use 'N/A' for empty/null lots in key
+            stripped_lot_num = raw_lot_num.strip() if raw_lot_num else '' # Strip potential whitespace
+            normalized_lot_num = stripped_lot_num if stripped_lot_num else 'N/A' # Use 'N/A' only if truly empty after stripping
+
+            # <<< --- ADDED DEBUG LOG --- >>>
+            if part_num == 'W14357':
+                print(f"--- CoC Report DEBUG [FIFO]: Part={part_num}, fi_id={fi_id}, Action={action}, RawLot='{raw_lot_num}', StrippedLot='{stripped_lot_num}', NormalizedLot='{normalized_lot_num}' ---")
+            # <<< --- END DEBUG LOG --- >>>
 
             raw_exp_date = row.get('fi_expires')
             formatted_exp_date = _format_date(raw_exp_date) # Format FIRST
             normalized_exp_date = formatted_exp_date # Use the formatted string ('N/A' or date) in key
-            
+
             agg_key = (part_num, normalized_lot_num, normalized_exp_date)
-            # --- MODIFICATION END ---
+            # --- END ---
 
             if not part_num: continue
 
@@ -162,17 +178,43 @@ def _get_single_job_details(job_number_str):
                     linked_fi_id = relieve_row.get('f2_fiid')
                     details = fi_id_to_details_map.get(linked_fi_id, {'lot_number': '', 'exp_date_raw': None})
 
-                    # --- MODIFICATION START: Normalize key components ---
+                    # --- MODIFICATION START: Logic to find existing lot if linked lot is missing ---
                     raw_lot_num = details['lot_number'] # Already normalized to '' if NULL by query
-                    normalized_lot_num = raw_lot_num if raw_lot_num else 'N/A'
+                    stripped_lot_num = raw_lot_num.strip() if raw_lot_num else '' # Strip potential whitespace
 
                     raw_exp_date = details['exp_date_raw']
-                    formatted_exp_date = _format_date(raw_exp_date) # Format FIRST
-                    normalized_exp_date = formatted_exp_date
+                    formatted_exp_date = _format_date(raw_exp_date)
+
+                    final_lot_num_to_use = stripped_lot_num
+                    final_exp_date_to_use = formatted_exp_date
+
+                    # If the directly linked lot is empty/missing...
+                    if not stripped_lot_num:
+                        found_existing_lot = False
+                        # ...try to find an existing aggregation for this part number with a valid lot
+                        for existing_key, existing_summary in job_data['aggregated_transactions'].items():
+                            if existing_key[0] == part_num and existing_key[1] != 'N/A':
+                                final_lot_num_to_use = existing_key[1] # Use the lot from the existing key
+                                final_exp_date_to_use = existing_key[2] # Use the exp_date from the existing key
+                                found_existing_lot = True
+                                if part_num == 'W14357': # DEBUG LOG
+                                     print(f"--- CoC Report DEBUG [RELIEVE - LOT OVERRIDE]: Part={part_num}, f2_id={relieve_id}, Linked_fi_id={linked_fi_id}. Found existing lot '{final_lot_num_to_use}' with exp date '{final_exp_date_to_use}' to use instead of N/A. ---")
+                                break # Stop searching once found
+                        if not found_existing_lot:
+                            final_lot_num_to_use = 'N/A' # Default back to N/A if no other valid lot found
+                            final_exp_date_to_use = 'N/A' # Default back to N/A
+
+                    # Normalize the final chosen lot number (might already be 'N/A')
+                    normalized_lot_num = final_lot_num_to_use if final_lot_num_to_use else 'N/A'
+                    normalized_exp_date = final_exp_date_to_use # Already formatted or 'N/A'
 
                     agg_key = (part_num, normalized_lot_num, normalized_exp_date)
                     # --- MODIFICATION END ---
 
+                    # <<< --- DEBUG LOG (moved after potential override) --- >>>
+                    if part_num == 'W14357':
+                         print(f"--- CoC Report DEBUG [RELIEVE - FINAL KEY]: Part={part_num}, f2_id={relieve_id}, Linked_fi_id={linked_fi_id}, RawLot='{raw_lot_num}', StrippedLot='{stripped_lot_num}', Final Agg Key='{agg_key}' ---")
+                    # <<< --- END DEBUG LOG --- >>>
 
                     if not part_num: continue
 
@@ -216,6 +258,11 @@ def _get_single_job_details(job_number_str):
         # Prevent division by zero
         summary['Yield Loss'] = (yield_cost / relieve) * 100.0 if relieve != 0 else 0.0
 
+        # <<< --- ADDED DEBUG LOG --- >>>
+        if summary.get('part_number') == 'W14357':
+            print(f"--- CoC Report DEBUG [AGGREGATED]: Key={agg_key}, Lot={summary.get('lot_number')}, Issued={issued}, Relieve={relieve}, Deissue={deissue}, YieldCost={yield_cost}, YieldLoss={summary['Yield Loss']}% ---")
+        # <<< --- END DEBUG LOG --- >>>
+
     # Create the final list for display, filtering out unwanted parts
     job_data['aggregated_list'] = [
         summary for summary in job_data['aggregated_transactions'].values()
@@ -247,6 +294,7 @@ def _get_single_job_details(job_number_str):
     # Remove the no longer needed intermediate structure
     del job_data['aggregated_transactions']
 
+    print(f"--- CoC Report DEBUG: Finished processing job {job_number_str} ---") # DEBUG LOG
     return job_data
 # ***** END HELPER FUNCTION *****
 
