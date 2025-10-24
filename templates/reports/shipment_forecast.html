@@ -5,7 +5,9 @@
 {% block navbar_title %}🔮 Shipment Forecast{% endblock %}
 
 {% block nav_links %}
-<a href="{{ url_for('reports.hub') }}">All Reports</a>
+{# ***** CORRECTED url_for HERE ***** #}
+<a href="{{ url_for('reports.reports_hub.hub') }}">All Reports</a>
+{# ***** END CORRECTION ***** #}
 <a href="/dashboard">Dashboard</a>
 <a href="/logout">Logout</a>
 {% endblock %}
@@ -175,7 +177,7 @@
     function toggleDetails(cellElement) {
         const detailsDiv = cellElement.querySelector('.calculation-details');
         const icon = cellElement.querySelector('.expand-icon');
-        
+
         if (detailsDiv.style.display === 'block') {
             detailsDiv.style.display = 'none';
             icon.classList.remove('expanded');
