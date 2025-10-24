@@ -58,18 +58,22 @@ def create_app():
     return app
 
 # ***** ENSURE THIS FUNCTION IS CORRECT *****
+# app.py - Snippet of register_blueprints function
+
 def register_blueprints(app):
     """Register all application blueprints"""
     from routes.main import main_bp
     from routes.downtime import downtime_bp
     from routes.erp_routes import erp_bp
     from routes.scheduling import scheduling_bp
-    from routes.reports import reports_bp # <-- Ensure this is imported
+    # from routes.reports import reports_bp # <-- REMOVE OLD IMPORT (if exists)
+    from routes.reports import reports_bp # <-- Ensure this import points to the new package
     from routes.bom import bom_bp
     from routes.po import po_bp
     from routes.mrp import mrp_bp
     from routes.sales import sales_bp
     from routes.jobs import jobs_bp
+    # ... import admin blueprints ...
     from routes.admin.panel import admin_panel_bp
     from routes.admin.facilities import admin_facilities_bp
     from routes.admin.production_lines import admin_lines_bp
@@ -79,12 +83,13 @@ def register_blueprints(app):
     from routes.admin.users import admin_users_bp
     from routes.admin.capacity import admin_capacity_bp
 
+
     # Register blueprints
     app.register_blueprint(main_bp)
     app.register_blueprint(downtime_bp)
     app.register_blueprint(erp_bp)
     app.register_blueprint(scheduling_bp)
-    app.register_blueprint(reports_bp) # <-- Ensure this is registered (prefix is in reports.py)
+    app.register_blueprint(reports_bp) # <-- This line remains the same (registers combined bp)
     app.register_blueprint(bom_bp)
     app.register_blueprint(po_bp)
     app.register_blueprint(mrp_bp)
@@ -100,6 +105,8 @@ def register_blueprints(app):
     app.register_blueprint(admin_shifts_bp, url_prefix='/admin')
     app.register_blueprint(admin_users_bp, url_prefix='/admin')
     app.register_blueprint(admin_capacity_bp, url_prefix='/admin')
+
+# ... rest of app.py ...
 # ***** END ENSURE THIS FUNCTION IS CORRECT *****
 
 def initialize_database():

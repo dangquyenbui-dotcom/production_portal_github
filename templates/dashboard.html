@@ -436,7 +436,9 @@
 
     {# View Reports: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
-    <a href="{{ url_for('reports.hub') }}" class="action-card">
+    {# ***** THIS IS THE LINE TO FIX ***** #}
+    <a href="{{ url_for('reports.reports_hub.hub') }}" class="action-card">
+    {# ***** END FIX ***** #}
         <div class="action-icon">📊</div>
         <div class="action-title">View Reports</div>
         <div class="action-desc">View downtime reports and analytics</div>

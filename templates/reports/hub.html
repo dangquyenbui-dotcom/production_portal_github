@@ -19,31 +19,35 @@
 
     <div class="admin-grid">
         {# Each card implicitly inherits the hub's access check #}
-        <a href="{{ url_for('reports.downtime_summary') }}" class="admin-card">
+
+        {# ***** CORRECTED url_for ***** #}
+        <a href="{{ url_for('reports.downtime_summary.downtime_summary') }}" class="admin-card">
             <div class="admin-icon">📊</div>
             <div class="admin-title">Downtime Summary</div>
             <div class="admin-desc">Analyze downtime duration by category and production line.</div>
         </a>
 
-        <a href="{{ url_for('reports.shipment_forecast') }}" class="admin-card">
+        {# ***** CORRECTED url_for ***** #}
+        <a href="{{ url_for('reports.shipment_forecast.shipment_forecast') }}" class="admin-card">
             <div class="admin-icon">🔮</div>
             <div class="admin-title">Shipment Forecast</div>
             <div class="admin-desc">Automated monthly shipment forecast based on MRP data.</div>
         </a>
 
-        <a href="{{ url_for('reports.coc_report') }}" class="admin-card">
+        {# ***** CORRECTED url_for ***** #}
+        <a href="{{ url_for('reports.coc_report.coc_report') }}" class="admin-card">
             <div class="admin-icon">📜</div>
             <div class="admin-title">Certificate of Compliance</div>
             <div class="admin-desc">View component usage and yield for a specific job.</div>
         </a>
 
+        {# These links go to different main blueprints, so their url_for should be correct #}
         <a href="{{ url_for('jobs.view_open_jobs') }}" class="admin-card">
             <div class="admin-icon">💼</div>
             <div class="admin-title">Open Jobs</div>
             <div class="admin-desc">View live open production jobs and component usage.</div>
         </a>
 
-        {# MRP Customer Summary needs Sched_Admin or Portal_Admin - require_scheduling_admin covers both #}
         {% if require_scheduling_admin(session) %}
         <a href="{{ url_for('mrp.customer_summary') }}" class="admin-card">
             <div class="admin-icon">📈</div>

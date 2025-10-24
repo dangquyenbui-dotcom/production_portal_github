@@ -5,7 +5,9 @@
 {% block navbar_title %}📜 Certificate of Compliance{% endblock %}
 
 {% block nav_links %}
-<a href="{{ url_for('reports.hub') }}">All Reports</a>
+{# ***** CORRECTED url_for HERE ***** #}
+<a href="{{ url_for('reports.reports_hub.hub') }}">All Reports</a>
+{# ***** END CORRECTION ***** #}
 <a href="/dashboard">Dashboard</a>
 <a href="/logout">Logout</a>
 {% endblock %}
@@ -47,9 +49,9 @@
     .job-details-container {
         margin-top: 20px;
         border: 1px solid var(--border-primary);
-        border-radius: 10px; 
+        border-radius: 10px;
         box-shadow: var(--shadow-sm);
-        overflow: hidden; 
+        overflow: hidden;
     }
 
     /* Mimic job-header-static from jobs.html for the top info */
@@ -57,16 +59,16 @@
         display: grid;
         grid-template-columns: 1fr 1fr 1.5fr 1.5fr 0.8fr 0.8fr 1fr;
         gap: 15px;
-        padding: 10px 20px; 
-        background: var(--table-header-bg); 
-        border-bottom: 2px solid var(--border-primary); 
+        padding: 10px 20px;
+        background: var(--table-header-bg);
+        border-bottom: 2px solid var(--border-primary);
     }
 
     .info-item .info-label {
-        font-size: 12px; 
-        color: var(--text-secondary); 
-        font-weight: 600; 
-        text-transform: uppercase; 
+        font-size: 12px;
+        color: var(--text-secondary);
+        font-weight: 600;
+        text-transform: uppercase;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -75,8 +77,8 @@
     }
      .info-item .info-value {
         color: var(--text-primary);
-        font-weight: 600; 
-        font-size: 14px; 
+        font-weight: 600;
+        font-size: 14px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -88,38 +90,38 @@
 
     /* Styling for the details section mimicking transaction-details */
     .component-details-section {
-        padding: 20px 30px; 
-        background-color: var(--bg-secondary); 
+        padding: 20px 30px;
+        background-color: var(--bg-secondary);
     }
 
     /* Table styling - Inherit from admin.css but adjust specifics */
-    .component-table { 
+    .component-table {
         width: 100%;
         border-collapse: collapse;
     }
      .component-table th, .component-table td {
-        padding: 10px 15px; 
-        font-size: 13px; 
+        padding: 10px 15px;
+        font-size: 13px;
         text-align: left;
         border-bottom: 1px solid var(--border-primary);
-        white-space: nowrap; 
+        white-space: nowrap;
     }
      .component-table tr:last-child td {
-        border-bottom: none; 
+        border-bottom: none;
     }
     .component-table thead {
-        background-color: var(--bg-hover); 
+        background-color: var(--bg-hover);
     }
     .component-table th {
         font-weight: 600;
         color: var(--text-secondary);
-        white-space: nowrap; 
+        white-space: nowrap;
     }
-    .component-table .numeric { 
+    .component-table .numeric {
         text-align: right;
     }
     .component-table td {
-         color: var(--text-primary); 
+         color: var(--text-primary);
     }
     .component-table td.description-cell {
         white-space: normal;
@@ -169,16 +171,17 @@
 <div id="alerts"></div>
 
 <div class="job-input-card">
-    <form method="GET" action="{{ url_for('reports.coc_report') }}" class="job-input-form">
+    <form method="GET" action="{{ url_for('reports.coc_report.coc_report') }}" class="job-input-form">
         <div class="form-group">
             <label for="jobNumberInput">Job Number</label>
             <input type="text" id="jobNumberInput" name="job_number" class="form-control"
                    placeholder="Enter Job Number (e.g., 202504992)" value="{{ job_number or '' }}" required>
         </div>
         <button type="submit" class="btn btn-primary">View Job Details</button>
-        
-        <button type="submit" class="btn btn-secondary" 
-                formaction="{{ url_for('reports.coc_report_pdf') }}" 
+
+        {# Use relative endpoint for PDF link as well #}
+        <button type="submit" class="btn btn-secondary"
+                formaction="{{ url_for('reports.coc_report.coc_report_pdf') }}"
                 formmethod="GET">
             Export to PDF
         </button>
@@ -197,12 +200,12 @@
             <span class="info-label">Part Number</span>
             <span class="info-value">{{ job_details.part_number }}</span>
         </div>
-        
+
         <div class="info-item">
             <span class="info-label">Part Description</span>
             <span class="info-value">{{ job_details.part_description or 'N/A' }}</span>
         </div>
-        
+
         <div class="info-item">
             <span class="info-label">Customer</span>
             <span class="info-value">{{ job_details.customer_name }}</span>
@@ -249,12 +252,12 @@
                         {% else %}
                             {% for lot_summary in group.lots %}
                             <tr class="lot-row {% if loop.first %}is-first-in-group{% endif %}">
-                                
+
                                 {% if loop.first %}
                                 <td rowspan="{{ group.lots|length }}">{{ part_num }}</td>
                                 <td rowspan="{{ group.lots|length }}" class="description-cell">{{ group.part_description }}</td>
                                 {% endif %}
-                                
+
                                 <td>{{ lot_summary.lot_number or 'N/A' }}</td>
                                 <td>{{ lot_summary.exp_date }}</td>
                                 <td class="numeric">{{ "{:,.2f}".format(lot_summary['Starting Lot Qty']) }}</td>
