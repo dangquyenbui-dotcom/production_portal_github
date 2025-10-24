@@ -1,14 +1,22 @@
 # routes/reports/coc.py
 """
 Route for the Certificate of Compliance (CoC) Report.
+CORRECTED: Updated permission checks to align with the matrix.
+FIXED: CoC report aggregation key to combine rows with null/empty lot/exp date.
+FIXED: More robust lot number normalization in CoC report aggregation.
+FIXED: Relieve Job aggregation to use existing lot if linked FIFO record lacks one.
+ADDED: Debug logging for CoC lot number processing.
+MODIFIED: Include 'Un-relieve Job' from dtfifo in Packaged Qty calculation.
 """
 from flask import (
     Blueprint, render_template, redirect, url_for, session, request, flash, send_file,
     current_app
 )
+# --- MODIFIED: Import more specific permission checkers ---
 from auth import (
     require_login, require_admin, require_scheduling_admin, require_scheduling_user
 )
+# --- END MODIFICATION ---
 from routes.main import validate_session
 from database import get_erp_service
 from datetime import datetime, timedelta
@@ -16,12 +24,6 @@ import traceback
 from collections import OrderedDict
 import io
 from utils.pdf_generator import generate_coc_pdf
-
-coc_report_bp = Blueprint('coc_report', __name__)
-
-# --- Define the required access level for reports ---
-REQUIRED_REPORT_ACCESS = lambda s: require_admin(s) or require_scheduling_admin(s) or require_scheduling_user(s)
-# --- END MODIFICATION ---
 
 # Helper function
 def safe_float(value, default=0.0):
@@ -109,8 +111,8 @@ def _get_single_job_details(job_number_str):
             normalized_lot_num = stripped_lot_num if stripped_lot_num else 'N/A' # Use 'N/A' only if truly empty after stripping
 
             # <<< --- ADDED DEBUG LOG --- >>>
-            if part_num == 'W14357':
-                print(f"--- CoC Report DEBUG [FIFO]: Part={part_num}, fi_id={fi_id}, Action={action}, RawLot='{raw_lot_num}', StrippedLot='{stripped_lot_num}', NormalizedLot='{normalized_lot_num}' ---")
+            if part_num == '5330-020' and job_number_str == '202505169': # Specific Debug
+                print(f"--- CoC Report DEBUG [FIFO]: Part={part_num}, fi_id={fi_id}, Action={action}, Qty={quantity}, RawLot='{raw_lot_num}', StrippedLot='{stripped_lot_num}', NormalizedLot='{normalized_lot_num}' ---")
             # <<< --- END DEBUG LOG --- >>>
 
             raw_exp_date = row.get('fi_expires')
@@ -132,7 +134,8 @@ def _get_single_job_details(job_number_str):
                     'Ending Inventory': 0.0,
                     'Packaged Qty': 0.0,
                     'Yield Cost/Scrap': 0.0,
-                    'Yield Loss': 0.0
+                    'Yield Loss': 0.0,
+                    '_UnRelieveJobQty': 0.0 # <<< NEW: Internal field to track Un-relieve
                 }
             # Update description if it was missing initially
             if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
@@ -143,6 +146,10 @@ def _get_single_job_details(job_number_str):
                 job_data['aggregated_transactions'][agg_key]['Starting Lot Qty'] += quantity
             elif action == 'De-issue':
                 job_data['aggregated_transactions'][agg_key]['Ending Inventory'] += quantity
+            # <<< NEW: Handle Un-relieve Job from dtfifo >>>
+            elif action == 'Un-relieve Job':
+                job_data['aggregated_transactions'][agg_key]['_UnRelieveJobQty'] += quantity
+            # <<< END NEW >>>
             # Handle other FIFO actions if necessary
 
     # Sort 'Finish Job' entries chronologically
@@ -195,7 +202,7 @@ def _get_single_job_details(job_number_str):
                                 final_lot_num_to_use = existing_key[1] # Use the lot from the existing key
                                 final_exp_date_to_use = existing_key[2] # Use the exp_date from the existing key
                                 found_existing_lot = True
-                                if part_num == 'W14357': # DEBUG LOG
+                                if part_num == '5330-020' and job_number_str == '202505169': # DEBUG LOG
                                      print(f"--- CoC Report DEBUG [RELIEVE - LOT OVERRIDE]: Part={part_num}, f2_id={relieve_id}, Linked_fi_id={linked_fi_id}. Found existing lot '{final_lot_num_to_use}' with exp date '{final_exp_date_to_use}' to use instead of N/A. ---")
                                 break # Stop searching once found
                         if not found_existing_lot:
@@ -210,8 +217,8 @@ def _get_single_job_details(job_number_str):
                     # --- MODIFICATION END ---
 
                     # <<< --- DEBUG LOG (moved after potential override) --- >>>
-                    if part_num == 'W14357':
-                         print(f"--- CoC Report DEBUG [RELIEVE - FINAL KEY]: Part={part_num}, f2_id={relieve_id}, Linked_fi_id={linked_fi_id}, RawLot='{raw_lot_num}', StrippedLot='{stripped_lot_num}', Final Agg Key='{agg_key}' ---")
+                    if part_num == '5330-020' and job_number_str == '202505169': # Specific Debug
+                         print(f"--- CoC Report DEBUG [RELIEVE - FINAL KEY]: Part={part_num}, f2_id={relieve_id}, Linked_fi_id={linked_fi_id}, RawLot='{raw_lot_num}', StrippedLot='{stripped_lot_num}', Final Agg Key='{agg_key}', Qty={quantity} ---")
                     # <<< --- END DEBUG LOG --- >>>
 
                     if not part_num: continue
@@ -227,13 +234,15 @@ def _get_single_job_details(job_number_str):
                             'Ending Inventory': 0.0,
                             'Packaged Qty': 0.0,
                             'Yield Cost/Scrap': 0.0,
-                            'Yield Loss': 0.0
+                            'Yield Loss': 0.0,
+                             '_UnRelieveJobQty': 0.0 # <<< NEW: Initialize internal field here too
                         }
                      # Update description if it was missing initially
                     if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
                          job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
 
-                    # Add the relieved quantity to 'Packaged Qty'
+                    # Add the relieved quantity (from dtfifo2) to 'Packaged Qty'
+                    # We will subtract the Un-relieve amount later
                     job_data['aggregated_transactions'][agg_key]['Packaged Qty'] += quantity
                     processed_relieve_ids.add(relieve_id) # Mark this specific transaction ID as processed
 
@@ -249,16 +258,21 @@ def _get_single_job_details(job_number_str):
     # Calculate Yields after all transactions are aggregated
     for agg_key, summary in job_data['aggregated_transactions'].items():
         issued = summary.get('Starting Lot Qty', 0.0)
-        relieve = summary.get('Packaged Qty', 0.0) # This now includes dtfifo2 'Relieve Job'
+        # <<< MODIFICATION: Calculate Net Packaged Qty >>>
+        relieve_from_dtfifo2 = summary.get('Packaged Qty', 0.0) # This comes ONLY from dtfifo2 now
+        unrelieve_from_dtfifo = summary.get('_UnRelieveJobQty', 0.0) # Get the Un-relieve total
+        net_packaged_qty = relieve_from_dtfifo2 - unrelieve_from_dtfifo
+        summary['Packaged Qty'] = net_packaged_qty # Update the main field
+        # <<< END MODIFICATION >>>
         deissue = summary.get('Ending Inventory', 0.0)
-        yield_cost = issued - relieve - deissue
+        yield_cost = issued - net_packaged_qty - deissue # <<< Use net_packaged_qty
         summary['Yield Cost/Scrap'] = yield_cost
         # Prevent division by zero
-        summary['Yield Loss'] = (yield_cost / relieve) * 100.0 if relieve != 0 else 0.0
+        summary['Yield Loss'] = (yield_cost / net_packaged_qty) * 100.0 if net_packaged_qty != 0 else 0.0 # <<< Use net_packaged_qty
 
         # <<< --- ADDED DEBUG LOG --- >>>
-        if summary.get('part_number') == 'W14357':
-            print(f"--- CoC Report DEBUG [AGGREGATED]: Key={agg_key}, Lot={summary.get('lot_number')}, Issued={issued}, Relieve={relieve}, Deissue={deissue}, YieldCost={yield_cost}, YieldLoss={summary['Yield Loss']}% ---")
+        if summary.get('part_number') == '5330-020' and job_number_str == '202505169': # Specific Debug
+            print(f"--- CoC Report DEBUG [AGGREGATED]: Key={agg_key}, Lot={summary.get('lot_number')}, Issued={issued}, Relieve(dtfifo2)={relieve_from_dtfifo2}, UnRelieve(dtfifo)={unrelieve_from_dtfifo}, NetPackaged={net_packaged_qty}, Deissue={deissue}, YieldCost={yield_cost}, YieldLoss={summary['Yield Loss']}% ---")
         # <<< --- END DEBUG LOG --- >>>
 
     # Create the final list for display, filtering out unwanted parts
@@ -284,6 +298,10 @@ def _get_single_job_details(job_number_str):
                 'part_description': summary.get('part_description', ''),
                 'lots': []
             }
+        # <<< REMOVE internal field before adding to final list >>>
+        if '_UnRelieveJobQty' in summary:
+            del summary['_UnRelieveJobQty']
+        # <<< END REMOVE >>>
         grouped_list[part_num]['lots'].append(summary)
 
     job_data['grouped_list'] = grouped_list
@@ -295,6 +313,13 @@ def _get_single_job_details(job_number_str):
     print(f"--- CoC Report DEBUG: Finished processing job {job_number_str} ---") # DEBUG LOG
     return job_data
 # ***** END HELPER FUNCTION *****
+
+
+coc_report_bp = Blueprint('coc_report', __name__)
+
+# --- Define the required access level for reports ---
+REQUIRED_REPORT_ACCESS = lambda s: require_admin(s) or require_scheduling_admin(s) or require_scheduling_user(s)
+# --- END MODIFICATION ---
 
 @coc_report_bp.route('/coc', methods=['GET'])
 @validate_session
