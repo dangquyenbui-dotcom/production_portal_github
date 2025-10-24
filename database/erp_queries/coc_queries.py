@@ -2,6 +2,7 @@
 """
 ERP Queries specifically for the Certificate of Compliance (CoC) Report.
 Fetches header and transaction data for any job number, regardless of status.
+MODIFIED: get_job_relieve_data now includes 'Un-finish Job' actions.
 """
 from database.erp_connection_base import get_erp_db_connection
 
@@ -60,12 +61,12 @@ class CoCQueries:
 
         sql = """
             SELECT
-                f.fi_id, 
+                f.fi_id,
                 f.fi_postref,
                 f.fi_action,
                 f.fi_quant,
                 f.fi_prid,
-                f.fi_recdate, 
+                f.fi_recdate,
                 ISNULL(f.fi_userlot, '') AS lot_number,
                 f.fi_expires, -- <<< MODIFICATION: Added expiration date
                 p_fifo.pr_codenum AS part_number,
@@ -82,6 +83,7 @@ class CoCQueries:
         """
         Retrieves relieve job data (dtfifo2) for a specific job number.
         Includes f2_recdate and f2_fiid for linking.
+        NOW INCLUDES 'Un-finish Job' actions.
         """
         if not job_number: return []
         db = get_erp_db_connection()
@@ -91,19 +93,21 @@ class CoCQueries:
 
         sql = """
             SELECT
-                f2.f2_id, 
+                f2.f2_id,
                 f2.f2_postref,
                 f2.f2_action,
                 f2.f2_prid,
                 f2.f2_recdate,
-                f2.f2_fiid, 
+                f2.f2_fiid,
                 (f2.f2_oldquan - f2.f2_newquan) AS net_quantity,
                 p.pr_codenum AS part_number,
                 p.pr_descrip AS part_description
             FROM dtfifo2 f2
             LEFT JOIN dmprod p ON f2.f2_prid = p.pr_id
             WHERE f2.f2_postref = ?
-            AND f2.f2_action = 'Relieve Job'
+            -- <<< MODIFICATION: Include both actions >>>
+            AND f2.f2_action IN ('Relieve Job', 'Un-finish Job')
+            -- <<< END MODIFICATION >>>
             ORDER BY f2.f2_recdate ASC; -- Order by date to process chronologically
         """
         params = [prefixed_job_number]

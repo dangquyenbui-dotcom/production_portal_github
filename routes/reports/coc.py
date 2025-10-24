@@ -5,8 +5,10 @@ CORRECTED: Updated permission checks to align with the matrix.
 FIXED: CoC report aggregation key to combine rows with null/empty lot/exp date.
 FIXED: More robust lot number normalization in CoC report aggregation.
 FIXED: Relieve Job aggregation to use existing lot if linked FIFO record lacks one.
-ADDED: Debug logging for CoC lot number processing.
 MODIFIED: Include 'Un-relieve Job' from dtfifo in Packaged Qty calculation.
+MODIFIED: Correctly subtract 'Un-finish Job' quantity from dtfifo2 in completed_qty calculation.
+REMOVED: All debug print statements.
+MODIFIED: Strip hyphens from job_number input in routes.
 """
 from flask import (
     Blueprint, render_template, redirect, url_for, session, request, flash, send_file,
@@ -51,20 +53,16 @@ def _get_single_job_details(job_number_str):
     if not job_number_str:
         return None
 
-    print(f"--- CoC Report DEBUG: Starting job {job_number_str} ---") # DEBUG LOG
-
     erp_service = get_erp_service()
+    # Pass the cleaned job number string to the service
     raw_data = erp_service.get_coc_report_data(job_number_str)
 
     if not raw_data or not raw_data.get("header"):
-        print(f"--- CoC Report DEBUG: Job header not found for {job_number_str} ---") # DEBUG LOG
         return {'error': f"Job '{job_number_str}' not found in the ERP system."}
 
     header = raw_data["header"]
     fifo_details = raw_data.get("fifo_details", [])
-    relieve_details = raw_data.get("relieve_details", [])
-
-    print(f"--- CoC Report DEBUG: Fetched {len(fifo_details)} FIFO details and {len(relieve_details)} relieve details ---") # DEBUG LOG
+    relieve_details = raw_data.get("relieve_details", []) # Data from dtfifo2 (now includes Un-finish Job)
 
     job_data = {
         'job_number': str(header['jo_jobnum']),
@@ -73,12 +71,11 @@ def _get_single_job_details(job_number_str):
         'customer_name': header.get('customer_name', 'N/A'),
         'sales_order': str(header.get('sales_order_number', '')) if header.get('sales_order_number') else '',
         'required_qty': safe_float(header.get('required_quantity')),
-        'completed_qty': 0.0,
+        'completed_qty': 0.0, # Initial value - will be adjusted by dtfifo and dtfifo2
         'aggregated_transactions': {}
     }
 
-    finish_job_entries = []
-    other_fifo_entries = []
+    finish_job_entries = [] # Keep track for chronological processing later
 
     # Map fi_id to lot and formatted expiration date for relieve linking
     fi_id_to_details_map = {
@@ -89,73 +86,61 @@ def _get_single_job_details(job_number_str):
         for row in fifo_details if row.get('fi_id')
     }
 
-    # Process FIFO details first
+    # --- Step 1: Calculate initial completed_qty sum from dtfifo 'Finish Job' ---
     for row in fifo_details:
         action = row.get('fi_action')
         timestamp = row.get('fi_recdate')
         quantity = safe_float(row.get('fi_quant'))
-        fi_id = row.get('fi_id') # Get fi_id for logging
+        fi_id = row.get('fi_id')
 
-        # Separate 'Finish Job' transactions
         if action == 'Finish Job' and timestamp:
             finish_job_entries.append({'timestamp': timestamp, 'quantity': quantity})
-            job_data['completed_qty'] += quantity
+            job_data['completed_qty'] += quantity # Accumulate positive values
+        # --- Handle other dtfifo actions for the aggregation table (not completed_qty) ---
         else:
-            # Aggregate other FIFO transactions
             part_num = row.get('part_number', '')
             part_desc = row.get('part_description', '')
-
-            # --- More robust lot number normalization ---
-            raw_lot_num = row.get('lot_number', '') # Query defaults NULL to ''
-            stripped_lot_num = raw_lot_num.strip() if raw_lot_num else '' # Strip potential whitespace
-            normalized_lot_num = stripped_lot_num if stripped_lot_num else 'N/A' # Use 'N/A' only if truly empty after stripping
-
-            # <<< --- ADDED DEBUG LOG --- >>>
-            if part_num == '5330-020' and job_number_str == '202505169': # Specific Debug
-                print(f"--- CoC Report DEBUG [FIFO]: Part={part_num}, fi_id={fi_id}, Action={action}, Qty={quantity}, RawLot='{raw_lot_num}', StrippedLot='{stripped_lot_num}', NormalizedLot='{normalized_lot_num}' ---")
-            # <<< --- END DEBUG LOG --- >>>
-
+            raw_lot_num = row.get('lot_number', '')
+            stripped_lot_num = raw_lot_num.strip() if raw_lot_num else ''
+            normalized_lot_num = stripped_lot_num if stripped_lot_num else 'N/A'
             raw_exp_date = row.get('fi_expires')
-            formatted_exp_date = _format_date(raw_exp_date) # Format FIRST
-            normalized_exp_date = formatted_exp_date # Use the formatted string ('N/A' or date) in key
-
+            formatted_exp_date = _format_date(raw_exp_date)
+            normalized_exp_date = formatted_exp_date
             agg_key = (part_num, normalized_lot_num, normalized_exp_date)
-            # --- END ---
 
             if not part_num: continue
 
             if agg_key not in job_data['aggregated_transactions']:
                 job_data['aggregated_transactions'][agg_key] = {
-                    'part_number': part_num,
-                    'part_description': part_desc,
-                    'lot_number': normalized_lot_num, # Store normalized version
-                    'exp_date': normalized_exp_date, # Store normalized version
-                    'Starting Lot Qty': 0.0,
-                    'Ending Inventory': 0.0,
-                    'Packaged Qty': 0.0,
-                    'Yield Cost/Scrap': 0.0,
-                    'Yield Loss': 0.0,
-                    '_UnRelieveJobQty': 0.0 # <<< NEW: Internal field to track Un-relieve
+                    'part_number': part_num, 'part_description': part_desc,
+                    'lot_number': normalized_lot_num, 'exp_date': normalized_exp_date,
+                    'Starting Lot Qty': 0.0, 'Ending Inventory': 0.0, 'Packaged Qty': 0.0,
+                    'Yield Cost/Scrap': 0.0, 'Yield Loss': 0.0, '_UnRelieveJobQty': 0.0
                 }
-            # Update description if it was missing initially
             if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
                  job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
 
-            # Aggregate quantities based on action
             if action == 'Issued inventory':
                 job_data['aggregated_transactions'][agg_key]['Starting Lot Qty'] += quantity
             elif action == 'De-issue':
                 job_data['aggregated_transactions'][agg_key]['Ending Inventory'] += quantity
-            # <<< NEW: Handle Un-relieve Job from dtfifo >>>
             elif action == 'Un-relieve Job':
                 job_data['aggregated_transactions'][agg_key]['_UnRelieveJobQty'] += quantity
-            # <<< END NEW >>>
-            # Handle other FIFO actions if necessary
 
-    # Sort 'Finish Job' entries chronologically
+    # --- Step 2: Adjust completed_qty based on dtfifo2 'Un-finish Job' ---
+    for relieve_row in relieve_details: # Iterate through dtfifo2 data
+        action = relieve_row.get('f2_action')
+        relieve_id = relieve_row.get('f2_id')
+        quantity_adjustment = safe_float(relieve_row.get('net_quantity'))
+
+        if action == 'Un-finish Job':
+             job_data['completed_qty'] -= quantity_adjustment # Subtract the adjustment
+
+    # Sort 'Finish Job' entries (from dtfifo) chronologically for relieve processing loop
     finish_job_entries.sort(key=lambda x: x['timestamp'])
 
-    # Process Relieve Job transactions (dtfifo2) chronologically up to each 'Finish Job' timestamp
+    # --- Step 3: Process dtfifo2 transactions chronologically *for the aggregation table* ---
+    # This loop focuses on 'Relieve Job' for Packaged Qty
     relieve_pointer = 0
     processed_relieve_ids = set()
 
@@ -165,152 +150,103 @@ def _get_single_job_details(job_number_str):
         for i in range(relieve_pointer, len(relieve_details)):
             relieve_row = relieve_details[i]
             relieve_timestamp = relieve_row.get('f2_recdate')
-            relieve_id = relieve_row.get('f2_id') # Unique ID for dtfifo2 row
+            relieve_id = relieve_row.get('f2_id')
+            action = relieve_row.get('f2_action') # Get action from dtfifo2
 
-            if relieve_id is None:
-                print(f"Warning: Relieve transaction missing unique ID: {relieve_row}")
-                continue # Skip if we can't uniquely identify
+            if relieve_id is None: continue
 
-            # Process relieve transactions that occurred up to or at the same time as the current Finish Job
             if relieve_timestamp and relieve_timestamp <= fj_timestamp:
-                # Ensure we haven't already processed this specific relieve transaction ID
                 if relieve_id not in processed_relieve_ids:
-                    part_num = relieve_row.get('part_number', '')
-                    part_desc = relieve_row.get('part_description', '')
-                    quantity = safe_float(relieve_row.get('net_quantity')) # Use net_quantity from query
+                    # Only process 'Relieve Job' for Packaged Qty aggregation
+                    if action == 'Relieve Job':
+                        part_num = relieve_row.get('part_number', '')
+                        part_desc = relieve_row.get('part_description', '')
+                        quantity = safe_float(relieve_row.get('net_quantity'))
 
-                    # Link back to the original FIFO entry to get lot/exp date
-                    linked_fi_id = relieve_row.get('f2_fiid')
-                    details = fi_id_to_details_map.get(linked_fi_id, {'lot_number': '', 'exp_date_raw': None})
+                        linked_fi_id = relieve_row.get('f2_fiid')
+                        details = fi_id_to_details_map.get(linked_fi_id, {'lot_number': '', 'exp_date_raw': None})
 
-                    # --- MODIFICATION START: Logic to find existing lot if linked lot is missing ---
-                    raw_lot_num = details['lot_number'] # Already normalized to '' if NULL by query
-                    stripped_lot_num = raw_lot_num.strip() if raw_lot_num else '' # Strip potential whitespace
+                        raw_lot_num = details['lot_number']
+                        stripped_lot_num = raw_lot_num.strip() if raw_lot_num else ''
+                        raw_exp_date = details['exp_date_raw']
+                        formatted_exp_date = _format_date(raw_exp_date)
+                        final_lot_num_to_use = stripped_lot_num
+                        final_exp_date_to_use = formatted_exp_date
 
-                    raw_exp_date = details['exp_date_raw']
-                    formatted_exp_date = _format_date(raw_exp_date)
+                        if not stripped_lot_num:
+                            found_existing_lot = False
+                            for existing_key, existing_summary in job_data['aggregated_transactions'].items():
+                                if existing_key[0] == part_num and existing_key[1] != 'N/A':
+                                    final_lot_num_to_use = existing_key[1]
+                                    final_exp_date_to_use = existing_key[2]
+                                    found_existing_lot = True
+                                    break
+                            if not found_existing_lot:
+                                final_lot_num_to_use = 'N/A'
+                                final_exp_date_to_use = 'N/A'
 
-                    final_lot_num_to_use = stripped_lot_num
-                    final_exp_date_to_use = formatted_exp_date
+                        normalized_lot_num = final_lot_num_to_use if final_lot_num_to_use else 'N/A'
+                        normalized_exp_date = final_exp_date_to_use
+                        agg_key = (part_num, normalized_lot_num, normalized_exp_date)
 
-                    # If the directly linked lot is empty/missing...
-                    if not stripped_lot_num:
-                        found_existing_lot = False
-                        # ...try to find an existing aggregation for this part number with a valid lot
-                        for existing_key, existing_summary in job_data['aggregated_transactions'].items():
-                            if existing_key[0] == part_num and existing_key[1] != 'N/A':
-                                final_lot_num_to_use = existing_key[1] # Use the lot from the existing key
-                                final_exp_date_to_use = existing_key[2] # Use the exp_date from the existing key
-                                found_existing_lot = True
-                                if part_num == '5330-020' and job_number_str == '202505169': # DEBUG LOG
-                                     print(f"--- CoC Report DEBUG [RELIEVE - LOT OVERRIDE]: Part={part_num}, f2_id={relieve_id}, Linked_fi_id={linked_fi_id}. Found existing lot '{final_lot_num_to_use}' with exp date '{final_exp_date_to_use}' to use instead of N/A. ---")
-                                break # Stop searching once found
-                        if not found_existing_lot:
-                            final_lot_num_to_use = 'N/A' # Default back to N/A if no other valid lot found
-                            final_exp_date_to_use = 'N/A' # Default back to N/A
+                        if not part_num: continue
 
-                    # Normalize the final chosen lot number (might already be 'N/A')
-                    normalized_lot_num = final_lot_num_to_use if final_lot_num_to_use else 'N/A'
-                    normalized_exp_date = final_exp_date_to_use # Already formatted or 'N/A'
+                        if agg_key not in job_data['aggregated_transactions']:
+                            job_data['aggregated_transactions'][agg_key] = {
+                                'part_number': part_num, 'part_description': part_desc,
+                                'lot_number': normalized_lot_num, 'exp_date': normalized_exp_date,
+                                'Starting Lot Qty': 0.0, 'Ending Inventory': 0.0, 'Packaged Qty': 0.0,
+                                'Yield Cost/Scrap': 0.0, 'Yield Loss': 0.0, '_UnRelieveJobQty': 0.0
+                            }
+                        if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
+                             job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
 
-                    agg_key = (part_num, normalized_lot_num, normalized_exp_date)
-                    # --- MODIFICATION END ---
+                        # Add the relieved quantity (from dtfifo2 'Relieve Job') to 'Packaged Qty'
+                        job_data['aggregated_transactions'][agg_key]['Packaged Qty'] += quantity
 
-                    # <<< --- DEBUG LOG (moved after potential override) --- >>>
-                    if part_num == '5330-020' and job_number_str == '202505169': # Specific Debug
-                         print(f"--- CoC Report DEBUG [RELIEVE - FINAL KEY]: Part={part_num}, f2_id={relieve_id}, Linked_fi_id={linked_fi_id}, RawLot='{raw_lot_num}', StrippedLot='{stripped_lot_num}', Final Agg Key='{agg_key}', Qty={quantity} ---")
-                    # <<< --- END DEBUG LOG --- >>>
+                    # Mark ID as processed regardless of action type
+                    processed_relieve_ids.add(relieve_id)
 
-                    if not part_num: continue
-
-                    # Initialize aggregation dictionary if key doesn't exist
-                    if agg_key not in job_data['aggregated_transactions']:
-                        job_data['aggregated_transactions'][agg_key] = {
-                            'part_number': part_num,
-                            'part_description': part_desc,
-                            'lot_number': normalized_lot_num, # Store normalized version
-                            'exp_date': normalized_exp_date, # Store normalized version
-                            'Starting Lot Qty': 0.0,
-                            'Ending Inventory': 0.0,
-                            'Packaged Qty': 0.0,
-                            'Yield Cost/Scrap': 0.0,
-                            'Yield Loss': 0.0,
-                             '_UnRelieveJobQty': 0.0 # <<< NEW: Initialize internal field here too
-                        }
-                     # Update description if it was missing initially
-                    if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
-                         job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
-
-                    # Add the relieved quantity (from dtfifo2) to 'Packaged Qty'
-                    # We will subtract the Un-relieve amount later
-                    job_data['aggregated_transactions'][agg_key]['Packaged Qty'] += quantity
-                    processed_relieve_ids.add(relieve_id) # Mark this specific transaction ID as processed
-
-                # Move the pointer forward ONLY if this transaction was processed
-                # (prevents infinite loop if multiple transactions have same timestamp)
                 if relieve_id in processed_relieve_ids:
                     relieve_pointer = i + 1
 
             elif relieve_timestamp and relieve_timestamp > fj_timestamp:
-                 # Stop processing relieve transactions for this 'Finish Job' timestamp
-                 break # Go to the next 'Finish Job' entry
+                 break
 
     # Calculate Yields after all transactions are aggregated
     for agg_key, summary in job_data['aggregated_transactions'].items():
         issued = summary.get('Starting Lot Qty', 0.0)
-        # <<< MODIFICATION: Calculate Net Packaged Qty >>>
-        relieve_from_dtfifo2 = summary.get('Packaged Qty', 0.0) # This comes ONLY from dtfifo2 now
-        unrelieve_from_dtfifo = summary.get('_UnRelieveJobQty', 0.0) # Get the Un-relieve total
+        relieve_from_dtfifo2 = summary.get('Packaged Qty', 0.0)
+        unrelieve_from_dtfifo = summary.get('_UnRelieveJobQty', 0.0)
         net_packaged_qty = relieve_from_dtfifo2 - unrelieve_from_dtfifo
-        summary['Packaged Qty'] = net_packaged_qty # Update the main field
-        # <<< END MODIFICATION >>>
+        summary['Packaged Qty'] = net_packaged_qty
         deissue = summary.get('Ending Inventory', 0.0)
-        yield_cost = issued - net_packaged_qty - deissue # <<< Use net_packaged_qty
+        yield_cost = issued - net_packaged_qty - deissue
         summary['Yield Cost/Scrap'] = yield_cost
-        # Prevent division by zero
-        summary['Yield Loss'] = (yield_cost / net_packaged_qty) * 100.0 if net_packaged_qty != 0 else 0.0 # <<< Use net_packaged_qty
+        summary['Yield Loss'] = (yield_cost / net_packaged_qty) * 100.0 if net_packaged_qty != 0 else 0.0
 
-        # <<< --- ADDED DEBUG LOG --- >>>
-        if summary.get('part_number') == '5330-020' and job_number_str == '202505169': # Specific Debug
-            print(f"--- CoC Report DEBUG [AGGREGATED]: Key={agg_key}, Lot={summary.get('lot_number')}, Issued={issued}, Relieve(dtfifo2)={relieve_from_dtfifo2}, UnRelieve(dtfifo)={unrelieve_from_dtfifo}, NetPackaged={net_packaged_qty}, Deissue={deissue}, YieldCost={yield_cost}, YieldLoss={summary['Yield Loss']}% ---")
-        # <<< --- END DEBUG LOG --- >>>
-
-    # Create the final list for display, filtering out unwanted parts
+    # Finalize list for display
     job_data['aggregated_list'] = [
         summary for summary in job_data['aggregated_transactions'].values()
-        # Filter out 0800- parts AND the main finished good itself
         if not summary.get('part_number', '').startswith('0800-')
-           and summary.get('part_number', '') != job_data['part_number']
+           and summary.get('part_number', '') != job_data['part_number'] # Filter out FG
     ]
-    # Sort the final list
     job_data['aggregated_list'].sort(key=lambda x: (
-        x.get('part_number', ''),
-        x.get('lot_number', ''), # Sorting by 'N/A' or actual lot
-        x.get('exp_date', '')   # Sorting by 'N/A' or actual formatted date
+        x.get('part_number', ''), x.get('lot_number', ''), x.get('exp_date', '')
     ))
 
-    # Group by part number for display (no changes needed here)
+    # Group by part number
     grouped_list = OrderedDict()
     for summary in job_data['aggregated_list']:
         part_num = summary.get('part_number', '')
         if part_num not in grouped_list:
-            grouped_list[part_num] = {
-                'part_description': summary.get('part_description', ''),
-                'lots': []
-            }
-        # <<< REMOVE internal field before adding to final list >>>
-        if '_UnRelieveJobQty' in summary:
-            del summary['_UnRelieveJobQty']
-        # <<< END REMOVE >>>
+            grouped_list[part_num] = { 'part_description': summary.get('part_description', ''), 'lots': [] }
+        if '_UnRelieveJobQty' in summary: del summary['_UnRelieveJobQty']
         grouped_list[part_num]['lots'].append(summary)
 
     job_data['grouped_list'] = grouped_list
-
-
-    # Remove the no longer needed intermediate structure
     del job_data['aggregated_transactions']
 
-    print(f"--- CoC Report DEBUG: Finished processing job {job_number_str} ---") # DEBUG LOG
     return job_data
 # ***** END HELPER FUNCTION *****
 
@@ -332,13 +268,18 @@ def coc_report():
         return redirect(url_for('main.dashboard'))
     # --- END MODIFICATION ---
 
-    job_number_param = request.args.get('job_number', '').strip()
+    # --- MODIFICATION: Sanitize job number input ---
+    job_number_input = request.args.get('job_number', '').strip()
+    # Remove hyphens
+    job_number_param = job_number_input.replace('-', '')
+    # --- END MODIFICATION ---
+
     job_details = None
     error_message = None
 
-    if job_number_param:
+    if job_number_param: # Use the cleaned version
         try:
-            job_details = _get_single_job_details(job_number_param)
+            job_details = _get_single_job_details(job_number_param) # Pass cleaned version
             if job_details and 'error' in job_details:
                 error_message = job_details['error']
                 job_details = None
@@ -351,7 +292,7 @@ def coc_report():
     return render_template(
         'reports/coc.html',
         user=session['user'],
-        job_number=job_number_param,
+        job_number=job_number_input, # Display original input in the form field
         job_details=job_details,
         error_message=error_message
     )
@@ -370,19 +311,24 @@ def coc_report_pdf():
         return redirect(url_for('main.dashboard'))
     # --- END MODIFICATION ---
 
-    job_number_param = request.args.get('job_number', '').strip()
-    if not job_number_param:
+    # --- MODIFICATION: Sanitize job number input ---
+    job_number_input = request.args.get('job_number', '').strip()
+    job_number_param = job_number_input.replace('-', '') # Remove hyphens
+    # --- END MODIFICATION ---
+
+    if not job_number_param: # Check cleaned version
         flash('A Job Number is required to generate a PDF.', 'error')
         return redirect(url_for('.coc_report')) # Use relative redirect within blueprint
 
     try:
-        # Get the same data as the web page
+        # Get the same data as the web page, using cleaned job number
         job_details = _get_single_job_details(job_number_param)
 
         if not job_details or 'error' in job_details:
             error_message = job_details.get('error', 'Job not found')
             flash(f'Could not generate PDF: {error_message}', 'error')
-            return redirect(url_for('.coc_report', job_number=job_number_param)) # Use relative redirect
+            # Redirect using original input for consistency in URL
+            return redirect(url_for('.coc_report', job_number=job_number_input))
 
         app_root_path = current_app.root_path
 
@@ -400,4 +346,5 @@ def coc_report_pdf():
     except Exception as e:
         flash(f'An error occurred while generating the PDF: {e}', 'error')
         traceback.print_exc()
-        return redirect(url_for('.coc_report', job_number=job_number_param)) # Use relative redirect
+        # Redirect using original input for consistency in URL
+        return redirect(url_for('.coc_report', job_number=job_number_input))

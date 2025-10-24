@@ -1,4 +1,7 @@
-# Production Portal v2.7.0
+Okay, here is the updated `README.md` file reflecting the recent changes, including the corrected Certificate of Compliance (CoC) report logic.
+
+````markdown
+# Production Portal v2.7.1
 
 ## 🌟 Overview
 
@@ -14,7 +17,7 @@ The Production Portal is a robust, enterprise-ready web application designed for
 
 The system utilizes a hybrid data architecture: it connects to a **read-only ERP database** (Deacom Cloud via `pyodbc`) for live production, inventory, sales, BOM, PO, and job data, while storing all user-generated data (downtime events, scheduling projections, audit logs, system configurations) in a separate, local **SQL Server database** (`ProductionDB`). User authentication is primarily handled via **Active Directory** (`wepackitall.local`), with a local fallback administrator account for emergencies.
 
-**Status:** All core modules described are implemented and operational.
+**Status:** All core modules described are implemented and operational. Recent updates include corrections to the Certificate of Compliance report to accurately account for 'Un-finish Job' transactions from the ERP's `dtfifo2` table when calculating the total completed quantity.
 
 ---
 
@@ -68,7 +71,6 @@ The system utilizes a hybrid data architecture: it connects to a **read-only ERP
     ```bash
     pip install -r requirements.txt
     ```
-   
 
 5.  **Database Initialization (`ProductionDB`):**
     * Ensure the `ProductionDB` database exists on your `DB_SERVER` instance.
@@ -80,7 +82,7 @@ The system utilizes a hybrid data architecture: it connects to a **read-only ERP
     ```bash
     waitress-serve --host=0.0.0.0 --port=5000 --call app:create_app
     ```
-    *(Adjust host/port as needed. Ensure the server's firewall allows traffic on the specified port.)*
+    *(Adjust host/port as needed. Ensure the server's firewall allows traffic on the specified port.)* You can also use the provided `start_production_portal.bat` script on Windows.
 
 7.  **Access in Browser:**
     Navigate to the server's IP address or hostname and the specified port (e.g., `http://your_server_ip:5000`). Log in using your Active Directory credentials. Access requires membership in specific AD groups defined in your `.env` file.
@@ -145,15 +147,15 @@ Analyzes open sales orders against ERP data (BOMs, Inventory, POs, Jobs) to pred
 
 ### Reporting Suite (`/reports`)
 
-Central hub linking to various reports:
+Central hub linking to various reports.
 
 * **Downtime Summary (`/reports/downtime-summary`)**: Aggregated downtime analysis by Category and Line within a selected date range/facility/line. Includes charts and raw data table.
 * **Shipment Forecast (`/reports/shipment-forecast`)**: Automated monthly forecast based on MRP results, categorizing orders into "Likely" and "At-Risk" based on material status and lead time.
-* **Certificate of Compliance (CoC) (`/reports/coc`)**: Generates a detailed report for any specified Job Number (open or closed) showing header info and component lot traceability, usage, and yield calculations. Includes PDF export functionality (`/reports/coc/pdf`) using ReportLab.
+* **Certificate of Compliance (CoC) (`/reports/coc`)**: Generates a detailed report for any specified Job Number (open or closed) showing header info and component lot traceability, usage, and yield calculations. Correctly calculates completed quantity by accounting for 'Finish Job' (from `dtfifo`) and 'Un-finish Job' (from `dtfifo2`) transactions. Includes PDF export functionality (`/reports/coc/pdf`) using ReportLab.
 
 ### Admin Panel (`/admin`)
 
-Restricted area for system configuration:
+Restricted area for system configuration.
 
 * **Facilities:** Manage locations (CRUD, History).
 * **Production Lines:** Manage lines within facilities (CRUD).
@@ -166,7 +168,7 @@ Restricted area for system configuration:
 ### Other Features
 
 * **Authentication:** Primarily Active Directory; includes a local admin fallback (`production_portal_admin`).
-* **Internationalization (i18n):** Supports English (en_US) and Spanish (es_MX) using Flask-Babel. User language preference stored in session and optionally in `UserPreferences` table.
+* **Internationalization (i18n):** Supports English (en_US) and Spanish (es_MX) using Flask-Babel. User language preference stored in session and optionally in `UserPreferences` table. Language can be switched via navbar links.
 * **Dark/Light Mode:** User-selectable theme preference stored in local storage, applies dynamically.
 * **Single Session Enforcement:** Invalidates previous sessions upon new login for the same user.
 * **Session Validation:** Decorator (`@validate_session`) checks session validity on protected routes.
@@ -203,52 +205,51 @@ Restricted area for system configuration:
 
 ## 📁 Project Structure
 
-````
-
-/production\_portal\_github/
+```text
+/production_portal_github/
 │
-├── app.py                  \# Flask application factory & runner
-├── config.py               \# Configuration loader (reads .env)
-├── requirements.txt        \# Python dependencies
-├── .env                    \# Local environment variables (GITIGNORED)
-├── .env.template           \# Template for .env file
-├── README.md               \# This file
+├── app.py                  # Flask application factory & runner
+├── config.py               # Configuration loader (reads .env)
+├── requirements.txt        # Python dependencies
+├── .env                    # Local environment variables (GITIGNORED)
+├── .env.template           # Template for .env file
+├── README.md               # This file
 │
-├── /auth/                  \# Authentication & Authorization
-│   ├── **init**.py
-│   └── ad\_auth.py          \# AD logic, permission helpers, local admin
+├── /auth/                  # Authentication & Authorization
+│   ├── __init__.py
+│   └── ad_auth.py          # AD logic, permission helpers, local admin
 │
-├── /database/              \# Data access layer
-│   ├── **init**.py         \# Exports DB instances & service getters
-│   ├── connection.py       \# Local DB (ProductionDB) connection
-│   ├── erp\_connection\_base.py \# Base ERP DB connection (pyodbc)
-│   ├── erp\_service.py      \# Facade for ERP queries
-│   ├── mrp\_service.py      \# Core MRP calculation logic
-│   ├── sales\_service.py    \# Sales analysis logic
-│   ├── scheduling.py       \# Scheduling projection DB operations
-│   ├── capacity.py         \# Production capacity DB operations
-│   ├── downtimes.py        \# Downtime event DB operations
-│   ├── facilities.py       \# Facilities DB operations
-│   ├── production\_lines.py \# Production Lines DB operations
-│   ├── categories.py       \# Downtime Categories DB operations
-│   ├── shifts.py           \# Shift definitions DB operations
-│   ├── users.py            \# User login/preferences DB operations
-│   ├── sessions.py         \# Active session management DB operations
-│   ├── audit.py            \# Audit log DB operations
-│   ├── reports.py          \# Report generation DB queries
-│   └── /erp\_queries/       \# Specific SQL queries for ERP
-│       ├── **init**.py
-│       ├── job\_queries.py
-│       ├── inventory\_queries.py
-│       ├── po\_queries.py
-│       ├── qc\_queries.py
-│       ├── bom\_queries.py
-│       ├── sales\_queries.py
-│       └── coc\_queries.py   \# CoC Report specific queries
+├── /database/              # Data access layer
+│   ├── __init__.py         # Exports DB instances & service getters
+│   ├── connection.py       # Local DB (ProductionDB) connection
+│   ├── erp_connection_base.py # Base ERP DB connection (pyodbc)
+│   ├── erp_service.py      # Facade for ERP queries
+│   ├── mrp_service.py      # Core MRP calculation logic
+│   ├── sales_service.py    # Sales analysis logic
+│   ├── scheduling.py       # Scheduling projection DB operations
+│   ├── capacity.py         # Production capacity DB operations
+│   ├── downtimes.py        # Downtime event DB operations
+│   ├── facilities.py       # Facilities DB operations
+│   ├── production_lines.py # Production Lines DB operations
+│   ├── categories.py       # Downtime Categories DB operations
+│   ├── shifts.py           # Shift definitions DB operations
+│   ├── users.py            # User login/preferences DB operations
+│   ├── sessions.py         # Active session management DB operations
+│   ├── audit.py            # Audit log DB operations
+│   ├── reports.py          # Report generation DB queries
+│   └── /erp_queries/       # Specific SQL queries for ERP
+│       ├── __init__.py
+│       ├── job_queries.py
+│       ├── inventory_queries.py
+│       ├── po_queries.py
+│       ├── qc_queries.py
+│       ├── bom_queries.py
+│       ├── sales_queries.py
+│       └── coc_queries.py   # CoC Report specific queries
 │
-├── /routes/                \# Flask blueprints (controllers)
-│   ├── **init**.py
-│   ├── main.py             \# Core routes (login, dashboard, logout, locale)
+├── /routes/                # Flask blueprints (controllers)
+│   ├── __init__.py
+│   ├── main.py             # Core routes (login, dashboard, logout, locale)
 │   ├── downtime.py
 │   ├── scheduling.py
 │   ├── mrp.py
@@ -256,25 +257,30 @@ Restricted area for system configuration:
 │   ├── bom.py
 │   ├── po.py
 │   ├── sales.py
-│   ├── reports.py          \# Hub and specific report routes
-│   ├── erp\_routes.py       \# API for ERP data (e.g., jobs for downtime form)
-│   └── /admin/             \# Admin panel blueprints
-│       ├── **init**.py
+│   ├── reports/            # Combined reports blueprint package
+│   │   ├── __init__.py     # Registers report sub-blueprints
+│   │   ├── hub.py          # Reports hub route
+│   │   ├── downtime_summary.py
+│   │   ├── shipment_forecast.py
+│   │   └── coc.py          # CoC report routes
+│   ├── erp_routes.py       # API for ERP data (e.g., jobs for downtime form)
+│   └── /admin/             # Admin panel blueprints
+│       ├── __init__.py
 │       ├── panel.py
 │       ├── facilities.py
-│       ├── production\_lines.py
+│       ├── production_lines.py
 │       ├── capacity.py
 │       ├── categories.py
 │       ├── shifts.py
 │       ├── users.py
 │       └── audit.py
 │
-├── /static/                \# Frontend assets (CSS, JS, Images)
+├── /static/                # Frontend assets (CSS, JS, Images)
 │   ├── /css/
 │   ├── /js/
 │   └── /img/
 │
-├── /templates/             \# Jinja2 HTML templates
+├── /templates/             # Jinja2 HTML templates
 │   ├── base.html
 │   ├── login.html
 │   ├── dashboard.html
@@ -288,95 +294,97 @@ Restricted area for system configuration:
 │   ├── /po/
 │   ├── /sales/
 │   ├── /reports/
-│   └── /components/        \# Reusable template snippets
+│   └── /components/        # Reusable template snippets
 │
-├── /translations/          \# Internationalization (i18n) files
-│   ├── /en/LC\_MESSAGES/    \# English (.po, .mo)
-│   └── /es/LC\_MESSAGES/    \# Spanish (.po, .mo)
-│   └── messages.pot        \# Translation template
+├── /translations/          # Internationalization (i18n) files
+│   ├── /en/LC_MESSAGES/    # English (.po, .mo)
+│   └── /es/LC_MESSAGES/    # Spanish (.po, .mo)
+│   └── messages.pot        # Translation template
 │
-├── /utils/                 \# Helper utilities
-│   ├── **init**.py
-│   ├── helpers.py          \# General utilities (client info, formatting)
-│   ├── validators.py       \# Input validation
-│   └── pdf\_generator.py    \# CoC PDF generation logic
+├── /utils/                 # Helper utilities
+│   ├── __init__.py
+│   ├── helpers.py          # General utilities (client info, formatting)
+│   ├── validators.py       # Input validation
+│   └── pdf_generator.py    # CoC PDF generation logic
 │
-├── babel.cfg               \# Babel config for string extraction
-├── start\_production\_portal.bat \# Example startup script for Windows
-└── .gitignore              \# Files/folders ignored by Git
-
+├── babel.cfg               # Babel config for string extraction
+├── start_production_portal.bat # Example startup script for Windows
+└── .gitignore              # Files/folders ignored by Git
 ````
 
----
+-----
 
 ## ⚙️ Configuration (`.env`)
 
 Key settings managed via the `.env` file:
 
-* `SECRET_KEY`: **Must be set to a unique, random string for security.**
-* `SESSION_HOURS`: Duration for user sessions.
-* `TEST_MODE`: `True` bypasses AD for development/testing, `False` uses live AD.
-* `AD_*`: Configuration for Active Directory connection and group names.
-* `DB_*`: Connection details for the local `ProductionDB` SQL Server.
-* `ERP_*`: Connection details for the read-only ERP SQL Server.
-* `SMTP_*`, `EMAIL_*`: Optional settings for email notifications (used by Categories).
+  * `SECRET_KEY`: **Must be set to a unique, random string for security.**
+  * `SESSION_HOURS`: Duration for user sessions.
+  * `TEST_MODE`: `True` bypasses AD for development/testing, `False` uses live AD.
+  * `AD_*`: Configuration for Active Directory connection and group names. **Includes `AD_PORTAL_ADMIN_GROUP`**.
+  * `DB_*`: Connection details for the local `ProductionDB` SQL Server.
+  * `ERP_*`: Connection details for the read-only ERP SQL Server.
+  * `SMTP_*`, `EMAIL_*`: Optional settings for email notifications (used by Categories).
 
----
+-----
 
 ## 🔐 Permissions Matrix
 
 Access is controlled by Active Directory group membership. A local user `production_portal_admin` exists as a fallback with full permissions.
 
-| AD Group/Module               | Admin Panel | Sched (View) | Sched (Update) | BOM | PO  | MRP | Sales | Downtime | Reports |
-| :---------------------------- | :---------- | :----------- | :------------- | :-: | :-: | :-: | :-: | :------- | :------ |
-| `DowntimeTracker_Admin`       | Yes         | No           | No             | Yes | Yes | No  | No  | Yes      | Yes     |
-| `DowntimeTracker_User`        | No          | No           | No             | No  | No  | No  | No  | Yes      | No      |
-| `Scheduling_Admin`            | Yes         | Yes          | Yes            | Yes | Yes | Yes | Yes | No       | Yes     |
-| `Scheduling_User`             | No          | Yes          | No             | Yes | Yes | Yes | Yes | No       | Yes     |
-| `Production_Portal_Admin`     | Yes         | Yes          | Yes            | Yes | Yes | Yes | Yes | Yes      | Yes     |
-| `production_portal_admin` (local) | Yes     | Yes          | Yes            | Yes | Yes | Yes | Yes | Yes      | Yes     |
+| AD Group/Module               | Admin Panel | Sched (View) | Sched (Update) | BOM | PO  | MRP | Sales | Downtime | Reports | Jobs |
+| :---------------------------- | :---------- | :----------- | :------------- | :-: | :-: | :-: | :-: | :------- | :------ | :--: |
+| `DowntimeTracker_Admin`       | Yes         | No           | No             | Yes | Yes | No  | No  | Yes      | Yes     | Yes  |
+| `DowntimeTracker_User`        | No          | No           | No             | No  | No  | No  | No  | Yes      | No      | No   |
+| `Scheduling_Admin`            | Yes         | Yes          | Yes            | Yes | Yes | Yes | Yes | No       | Yes     | Yes  |
+| `Scheduling_User`             | No          | Yes          | No             | Yes | Yes | Yes | Yes | No       | Yes     | Yes  |
+| `Production_Portal_Admin`     | Yes         | Yes          | Yes            | Yes | Yes | Yes | Yes | Yes      | Yes     | Yes  |
+| `production_portal_admin` (local) | Yes     | Yes          | Yes            | Yes | Yes | Yes | Yes | Yes      | Yes     | Yes  |
 
-*(Note: "Reports" access grants entry to the `/reports/hub` and individual reports based on the matrix logic)*
+*(Note: "Reports" access grants entry to the `/reports/` hub and individual reports based on the matrix logic. "Jobs" refers to the Live Open Jobs Viewer.)*
 
----
+-----
 
 ## 🌍 Internationalization (i18n)
 
-* **Supported Languages:** English (US `en`), Spanish (MX `es`).
-* **Implementation:** Uses Flask-Babel. Translatable strings are extracted using `babel.cfg` into `messages.pot`, compiled into `.mo` files. User language preference is stored in the session and can be saved to the `UserPreferences` table. Language can be switched via navbar links.
+  * **Supported Languages:** English (US `en`), Spanish (MX `es`).
+  * **Implementation:** Uses Flask-Babel. Translatable strings are extracted using `babel.cfg` into `messages.pot`, compiled into `.mo` files. User language preference is stored in the session and can be saved to the `UserPreferences` table. Language can be switched via navbar links.
 
----
+-----
 
 ## 🏭 Running for Production
 
-* **WSGI Server:** Use Waitress (or Gunicorn/uWSGI). **Do not use `flask run` or `python app.py` with `debug=True`**.
+  * **WSGI Server:** Use Waitress (or Gunicorn/uWSGI). **Do not use `flask run` or `python app.py` with `debug=True`**.
     ```bash
     waitress-serve --host=0.0.0.0 --port=5000 --call app:create_app
     ```
-* **Configuration:** Ensure `TEST_MODE=False` and a strong `SECRET_KEY` are set in `.env`. Verify all DB/ERP/AD settings point to production resources.
-* **HTTPS:** Strongly recommended. Set up a reverse proxy (Nginx, Apache, IIS) to handle SSL termination.
-* **Logging:** Configure proper file-based logging for monitoring.
-* **Virtual Environment:** Always run within the activated project virtual environment.
+    *(See `start_production_portal.bat` for a Windows example.)*
+  * **Configuration:** Ensure `TEST_MODE=False` and a strong `SECRET_KEY` are set in `.env`. Verify all DB/ERP/AD settings point to production resources.
+  * **HTTPS:** Strongly recommended. Set up a reverse proxy (Nginx, Apache, IIS) to handle SSL termination.
+  * **Logging:** Configure proper file-based logging for monitoring.
+  * **Virtual Environment:** Always run within the activated project virtual environment.
 
----
+-----
 
 ## 📄 License
 
 (Specify your project's license here, e.g., MIT, GPL, Proprietary)
 
----
+-----
 
 ## 🙏 Acknowledgements
 
-* Flask
-* Waitress
-* pyodbc
-* ldap3
-* Flask-Babel
-* openpyxl
-* reportlab
-* python-dotenv
-* Werkzeug
+  * Flask
+  * Waitress
+  * pyodbc
+  * ldap3
+  * Flask-Babel
+  * openpyxl
+  * reportlab
+  * python-dotenv
+  * Werkzeug
 
----
-````
+-----
+
+```
+```
