@@ -1,4 +1,4 @@
-Okay, here is the updated `README.md` file reflecting the recent changes, including the corrected Certificate of Compliance (CoC) report logic.
+Okay, here is a completely rewritten `README.md` file based on the information gathered from all the provided project files.
 
 ````markdown
 # Production Portal v2.7.1
@@ -13,11 +13,11 @@ The Production Portal is a robust, enterprise-ready web application designed for
 * **Material Requirements Planning (MRP):** A powerful dashboard analyzing material availability against open orders to suggest production priorities and identify component shortages.
 * **Sales Analysis:** Dashboards for reviewing customer performance, sales trends, and open order status.
 * **Reporting:** Generating key operational reports like Downtime Summaries, Shipment Forecasts, and detailed Certificate of Compliance (CoC) reports per job.
-* **System Administration:** Configuring core application settings like facilities, production lines, shifts, and user permissions.
+* **System Administration:** Configuring core application settings like facilities, production lines, shifts, categories, capacity, and user permissions.
 
-The system utilizes a hybrid data architecture: it connects to a **read-only ERP database** (Deacom Cloud via `pyodbc`) for live production, inventory, sales, BOM, PO, and job data, while storing all user-generated data (downtime events, scheduling projections, audit logs, system configurations) in a separate, local **SQL Server database** (`ProductionDB`). User authentication is primarily handled via **Active Directory** (`wepackitall.local`), with a local fallback administrator account for emergencies.
+The system utilizes a hybrid data architecture: it connects to a **read-only ERP database** (assumed Deacom Cloud via `pyodbc`) for live production, inventory, sales, BOM, PO, and job data, while storing all user-generated data (downtime events, scheduling projections, audit logs, system configurations) in a separate, local **SQL Server database** (referred to as `ProductionDB` in config). User authentication is primarily handled via **Active Directory** (`wepackitall.local` domain assumed based on config), with a local fallback administrator account (`production_portal_admin`) for emergencies.
 
-**Status:** All core modules described are implemented and operational. Recent updates include corrections to the Certificate of Compliance report to accurately account for 'Un-finish Job' transactions from the ERP's `dtfifo2` table when calculating the total completed quantity.
+**Status:** All core modules described are implemented and operational.
 
 ---
 
@@ -27,9 +27,9 @@ The system utilizes a hybrid data architecture: it connects to a **read-only ERP
 
 * Python 3.10+
 * Microsoft SQL Server (for the local `ProductionDB`)
-* Read-only access to the target ERP SQL Server database (Deacom Cloud).
-* Appropriate **ODBC Drivers** installed on the server running the application (e.g., "ODBC Driver 17 for SQL Server" or similar, as specified in `.env`).
-* Access to the `wepackitall.local` Active Directory domain for user authentication (unless using `TEST_MODE=True` or the local admin).
+* Read-only access to the target ERP SQL Server database.
+* Appropriate **ODBC Drivers** installed on the server running the application (e.g., "ODBC Driver 17 for SQL Server", "SQL Server").
+* Access to the Active Directory domain configured in `.env` for user authentication (unless using `TEST_MODE=True` or the local admin).
 
 ### Installation & Setup
 
@@ -43,7 +43,7 @@ The system utilizes a hybrid data architecture: it connects to a **read-only ERP
     * Copy the `.env.template` file to a new file named `.env` in the project root.
     * **Crucially, update the variables within `.env`** with your specific production configuration details:
         * `SECRET_KEY`: **Generate a new, strong, random secret key.** The placeholder is insecure.
-        * `AD_SERVER`, `AD_DOMAIN`, `AD_SERVICE_ACCOUNT`, `AD_SERVICE_PASSWORD`, `AD_BASE_DN`, `AD_*_GROUP` names for production AD.
+        * `AD_SERVER`, `AD_DOMAIN`, `AD_SERVICE_ACCOUNT`, `AD_SERVICE_PASSWORD`, `AD_BASE_DN`, `AD_*_GROUP` names for production AD. Includes `AD_PORTAL_ADMIN_GROUP`.
         * `DB_SERVER`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` (or `DB_USE_WINDOWS_AUTH`) for the local `ProductionDB`.
         * `ERP_DB_SERVER`, `ERP_DB_NAME`, `ERP_DB_USERNAME`, `ERP_DB_PASSWORD`, `ERP_DB_PORT`, `ERP_DB_DRIVER` for the read-only ERP connection.
         * Ensure `TEST_MODE=False` for production.
@@ -65,6 +65,7 @@ The system utilizes a hybrid data architecture: it connects to a **read-only ERP
     # macOS/Linux:
     # source venv/bin/activate
     ```
+    *(The `start_production_portal.bat` script expects the environment to be named `venv`)*.
 
 4.  **Install Dependencies:**
     With the virtual environment activated, install the required packages:
@@ -75,7 +76,7 @@ The system utilizes a hybrid data architecture: it connects to a **read-only ERP
 5.  **Database Initialization (`ProductionDB`):**
     * Ensure the `ProductionDB` database exists on your `DB_SERVER` instance.
     * Verify the `DB_USERNAME` (or the service account if using Windows Auth) has permissions to connect, SELECT, INSERT, UPDATE, DELETE, and potentially CREATE/ALTER TABLE within that database.
-    * The application will attempt to create necessary tables (`AuditLog`, `ActiveSessions`, `DowntimeCategories`, `Shifts`, `ProductionCapacity`, `ScheduleProjections`, `UserLogins`, `UserPreferences`, etc.) on its first run if they don't exist.
+    * The application will attempt to create necessary tables (`AuditLog`, `ActiveSessions`, `DowntimeCategories`, `Shifts`, `ProductionCapacity`, `ScheduleProjections`, `UserLogins`, `UserPreferences`, `Facilities`, `ProductionLines`, `Downtimes`) on its first run if they don't exist.
 
 6.  **Run the Application (Production):**
     Use a production-ready WSGI server like Waitress (included in requirements). Ensure the virtual environment is active.
@@ -85,7 +86,7 @@ The system utilizes a hybrid data architecture: it connects to a **read-only ERP
     *(Adjust host/port as needed. Ensure the server's firewall allows traffic on the specified port.)* You can also use the provided `start_production_portal.bat` script on Windows.
 
 7.  **Access in Browser:**
-    Navigate to the server's IP address or hostname and the specified port (e.g., `http://your_server_ip:5000`). Log in using your Active Directory credentials. Access requires membership in specific AD groups defined in your `.env` file.
+    Navigate to the server's IP address or hostname and the specified port (e.g., `http://your_server_ip:5000`). Log in using your Active Directory credentials (or local admin). Access requires membership in specific AD groups defined in your `.env` file.
 
 ---
 
@@ -108,14 +109,14 @@ Analyzes open sales orders against ERP data (BOMs, Inventory, POs, Jobs) to pred
 * **Purchasing Shortage Report (`/mrp/buyer-view`)**:
     * Consolidates all component shortfalls identified by the MRP run.
     * Lists shortages showing On-Hand, Open PO Qty, Total Shortfall, affected Customers/SOs, and earliest Due Date.
-    * Filterable by urgency (due date proximity), customer, and text search. Excel export available.
+    * Filterable by urgency (due date proximity), customer, and text search. Sortable columns. Excel export available.
 
 ### Production Scheduling (`/scheduling`)
 
 * Displays open sales orders from ERP merged with user-editable production projections.
-* Users (with permission) can input "No/Low Risk" and "High Risk" quantities per SO line, saved locally.
+* Users (with `Scheduling_Admin` or `Production_Portal_Admin` permission) can input "No/Low Risk" and "High Risk" quantities per SO line, saved locally.
 * Calculates projected dollar values based on user input and ERP unit prices.
-* Features summary cards: FG On Hand Value (split by date buckets), Shipped Value (Current Month), Total Projected Values.
+* Features summary cards: FG On Hand Value (split by date buckets), Shipped Value (Current Month), Total Projected Values, Forecast Values.
 * Grid includes multi-select filtering (Facility, SO Type, Due Date), single-select filtering (BU, Customer), column visibility control (persisted in local storage), sorting, and validation highlighting discrepancies between Net Qty and projections.
 * Excel export of the current view.
 
@@ -124,7 +125,7 @@ Analyzes open sales orders against ERP data (BOMs, Inventory, POs, Jobs) to pred
 * Tablet-optimized form for recording production downtime.
 * Inputs: Facility, Line, Start/End Time (auto-fills last 30 mins), Crew Size, Category (Main/Sub), optional ERP Job (dynamically loaded via API based on Line/Facility), Shift (auto-detected), Comments.
 * Displays duration automatically. Includes "Quick Notes" buttons.
-* Shows a list of today's entries for the selected line, allowing editing/deleting of own entries.
+* Shows a list of today's entries for the selected line (from all users), allowing editing/deleting of own entries.
 * Data saved to the local `ProductionDB`.
 
 ### Live Open Jobs Viewer (`/jobs/open-jobs`)
@@ -132,7 +133,7 @@ Analyzes open sales orders against ERP data (BOMs, Inventory, POs, Jobs) to pred
 * Real-time view of *open* production jobs from ERP.
 * Displays Job #, Part #, Customer, SO #, Required Qty, Completed Qty.
 * Filterable by Customer, Job, Part, SO; Sortable columns.
-* Expandable rows show detailed component transactions (`dtfifo`, `dtfifo2`) aggregated by action (Issued, De-issue, Relieve Job, Finish Job) and calculates Yield Cost/Scrap and Yield Loss %.
+* Expandable rows show detailed component transactions (`dtfifo`, `dtfifo2`) aggregated by action (Issued, De-issue, Relieve Job, Finish Job) and calculates Yield Cost/Scrap and Yield Loss %. Persists expanded state.
 * Optional live auto-refresh toggle (fetches data via `/jobs/api/open-jobs-data`).
 
 ### ERP Data Viewers
@@ -155,21 +156,21 @@ Central hub linking to various reports.
 
 ### Admin Panel (`/admin`)
 
-Restricted area for system configuration.
+Restricted area for system configuration. Requires `DowntimeTracker_Admin`, `Scheduling_Admin`, or `Production_Portal_Admin` group membership.
 
 * **Facilities:** Manage locations (CRUD, History).
 * **Production Lines:** Manage lines within facilities (CRUD).
 * **Production Capacity:** Define output per shift per line (CRUD).
 * **Downtime Categories:** Manage hierarchical reason codes (CRUD, Reactivate, Color, Notifications).
 * **Shift Management:** Configure work shifts (CRUD, Reactivate).
-* **User Management:** View user login history, detected AD groups, activity stats (CRUD for permissions planned but not shown in current files).
+* **User Management:** View user login history, detected AD groups, activity stats, export user list.
 * **Audit Log:** Filterable view of all system changes logged in `AuditLog` table.
 
 ### Other Features
 
 * **Authentication:** Primarily Active Directory; includes a local admin fallback (`production_portal_admin`).
 * **Internationalization (i18n):** Supports English (en_US) and Spanish (es_MX) using Flask-Babel. User language preference stored in session and optionally in `UserPreferences` table. Language can be switched via navbar links.
-* **Dark/Light Mode:** User-selectable theme preference stored in local storage, applies dynamically.
+* **Dark/Light Mode:** User-selectable theme preference stored in local storage, applies dynamically. Includes theme-specific favicons.
 * **Single Session Enforcement:** Invalidates previous sessions upon new login for the same user.
 * **Session Validation:** Decorator (`@validate_session`) checks session validity on protected routes.
 
@@ -193,13 +194,13 @@ Restricted area for system configuration.
 ## 🏗️ Architecture
 
 * **Flask Application Factory:** Uses `create_app()` pattern in `app.py`.
-* **Blueprints:** Modular structure using Flask Blueprints for different sections (main, downtime, scheduling, admin, etc.).
+* **Blueprints:** Modular structure using Flask Blueprints for different sections (main, downtime, scheduling, reports, mrp, admin, etc.). The `/reports` prefix combines multiple report-specific blueprints.
 * **Database Layer:**
-    * Separate connection handlers for local `ProductionDB` (`database/connection.py`) and read-only ERP (`database/erp_connection_base.py`).
+    * Separate connection handlers for local `ProductionDB` (`database/connection.py`) and read-only ERP (`database/erp_connection_base.py`). Both aim for persistent connections.
     * Service layer (`database/erp_service.py`) acts as a facade for ERP queries, delegating to specialized query modules (`database/erp_queries/*`).
     * Dedicated modules for local DB table operations (e.g., `database/downtimes.py`, `database/scheduling.py`).
 * **Authentication:** Handled in the `auth` package, interacting with AD via `ldap3` or checking local hash. Permission checks (`require_admin`, `require_scheduling_user`, etc.) are used in routes and templates.
-* **Frontend:** Server-side rendering with Jinja2; client-side interactions via Vanilla JavaScript, including AJAX calls for dynamic data loading (e.g., ERP jobs, line lists) and updates (e.g., scheduling projections).
+* **Frontend:** Server-side rendering with Jinja2; client-side interactions via Vanilla JavaScript, including AJAX calls for dynamic data loading (e.g., ERP jobs, line lists) and updates (e.g., scheduling projections, live jobs data).
 
 ---
 
@@ -236,7 +237,7 @@ Restricted area for system configuration.
 │   ├── users.py            # User login/preferences DB operations
 │   ├── sessions.py         # Active session management DB operations
 │   ├── audit.py            # Audit log DB operations
-│   ├── reports.py          # Report generation DB queries
+│   ├── reports.py          # Report generation DB queries (summary, forecast)
 │   └── /erp_queries/       # Specific SQL queries for ERP
 │       ├── __init__.py
 │       ├── job_queries.py
@@ -257,6 +258,7 @@ Restricted area for system configuration.
 │   ├── bom.py
 │   ├── po.py
 │   ├── sales.py
+│   ├── reports.py          # Legacy/placeholder (now uses package below)
 │   ├── reports/            # Combined reports blueprint package
 │   │   ├── __init__.py     # Registers report sub-blueprints
 │   │   ├── hub.py          # Reports hub route
@@ -309,7 +311,8 @@ Restricted area for system configuration.
 │
 ├── babel.cfg               # Babel config for string extraction
 ├── start_production_portal.bat # Example startup script for Windows
-└── .gitignore              # Files/folders ignored by Git
+├── .gitignore              # Files/folders ignored by Git
+└── .gitattributes          # Git line ending normalization config
 ````
 
 -----
@@ -330,18 +333,18 @@ Key settings managed via the `.env` file:
 
 ## 🔐 Permissions Matrix
 
-Access is controlled by Active Directory group membership. A local user `production_portal_admin` exists as a fallback with full permissions.
+Access is controlled by Active Directory group membership (or Test Mode equivalents). A local user `production_portal_admin` exists as a fallback with full permissions.
 
-| AD Group/Module               | Admin Panel | Sched (View) | Sched (Update) | BOM | PO  | MRP | Sales | Downtime | Reports | Jobs |
-| :---------------------------- | :---------- | :----------- | :------------- | :-: | :-: | :-: | :-: | :------- | :------ | :--: |
-| `DowntimeTracker_Admin`       | Yes         | No           | No             | Yes | Yes | No  | No  | Yes      | Yes     | Yes  |
-| `DowntimeTracker_User`        | No          | No           | No             | No  | No  | No  | No  | Yes      | No      | No   |
-| `Scheduling_Admin`            | Yes         | Yes          | Yes            | Yes | Yes | Yes | Yes | No       | Yes     | Yes  |
-| `Scheduling_User`             | No          | Yes          | No             | Yes | Yes | Yes | Yes | No       | Yes     | Yes  |
-| `Production_Portal_Admin`     | Yes         | Yes          | Yes            | Yes | Yes | Yes | Yes | Yes      | Yes     | Yes  |
-| `production_portal_admin` (local) | Yes     | Yes          | Yes            | Yes | Yes | Yes | Yes | Yes      | Yes     | Yes  |
+| AD Group / Feature        | Admin Panel | Sched (View) | Sched (Update) | BOM | PO  | MRP | Sales | Downtime (Report) | Downtime (Admin) | Reports Hub | Jobs |
+| :------------------------ | :---------- | :----------- | :------------- | :-: | :-: | :-: | :-: | :---------------- | :--------------- | :---------- | :--: |
+| `DowntimeTracker_Admin`   | Yes         | No           | No             | Yes | Yes | No  | No  | Yes               | Yes              | Yes         | Yes  |
+| `DowntimeTracker_User`    | No          | No           | No             | No  | No  | No  | No  | Yes               | No               | No          | No   |
+| `Scheduling_Admin`        | Yes         | Yes          | Yes            | Yes | Yes | Yes | Yes | No                | No               | Yes         | Yes  |
+| `Scheduling_User`         | No          | Yes          | No             | Yes | Yes | Yes | Yes | No                | No               | Yes         | Yes  |
+| `Production_Portal_Admin` | Yes         | Yes          | Yes            | Yes | Yes | Yes | Yes | Yes               | Yes              | Yes         | Yes  |
+| `production_portal_admin` | Yes         | Yes          | Yes            | Yes | Yes | Yes | Yes | Yes               | Yes              | Yes         | Yes  |
 
-*(Note: "Reports" access grants entry to the `/reports/` hub and individual reports based on the matrix logic. "Jobs" refers to the Live Open Jobs Viewer.)*
+*(Note: "Reports Hub" access grants entry to `/reports/`. Access to individual reports/viewers within the hub follows the permissions for those specific features. "Downtime (Admin)" includes editing/deleting others' entries. MRP requires Scheduling Admin.)*
 
 -----
 
@@ -377,12 +380,12 @@ Access is controlled by Active Directory group membership. A local user `product
   * Flask
   * Waitress
   * pyodbc
-  * ldap3
-  * Flask-Babel
+  * ldap3, python-ldap
+  * Flask-Babel, Babel
   * openpyxl
   * reportlab
   * python-dotenv
-  * Werkzeug
+  * Werkzeug, MarkupSafe, Jinja2, cryptography
 
 -----
 

@@ -34,7 +34,6 @@
         margin-bottom: 0;
     }
 
-    /* <<< MODIFICATION: Added .btn-secondary style */
     .btn-secondary {
         background-color: var(--bg-hover);
         color: var(--text-primary);
@@ -43,9 +42,7 @@
     .btn-secondary:hover {
         background-color: var(--border-primary);
     }
-    /* <<< END MODIFICATION */
 
-    /* Container for the job details, mimicking accordion structure appearance */
     .job-details-container {
         margin-top: 20px;
         border: 1px solid var(--border-primary);
@@ -54,18 +51,20 @@
         overflow: hidden;
     }
 
-    /* Mimic job-header-static from jobs.html for the top info */
     .job-header-info {
         display: grid;
-        grid-template-columns: 1fr 1fr 1.5fr 1.5fr 0.8fr 0.8fr 1fr;
-        gap: 15px;
-        padding: 10px 20px;
+        /* <<< MODIFIED: Adjusted grid columns again >>> */
+        /* Job | Part | UoM | Desc | Cust | SO | PO | Req | Comp | Shelf | Batch */
+        grid-template-columns: 0.8fr 0.8fr 0.4fr 1.2fr 1fr 0.6fr 0.7fr 0.6fr 0.6fr 0.7fr 1fr;
+        gap: 15px; /* <<< INCREASED GAP slightly >>> */
+        padding: 10px 15px;
         background: var(--table-header-bg);
         border-bottom: 2px solid var(--border-primary);
+        align-items: start;
     }
 
     .info-item .info-label {
-        font-size: 12px;
+        font-size: 11px;
         color: var(--text-secondary);
         font-weight: 600;
         text-transform: uppercase;
@@ -73,34 +72,38 @@
         overflow: hidden;
         text-overflow: ellipsis;
         display: block;
-        margin-bottom: 4px;
+        margin-bottom: 3px;
     }
      .info-item .info-value {
         color: var(--text-primary);
         font-weight: 600;
-        font-size: 14px;
+        font-size: 13px;
         white-space: nowrap;
         overflow: hidden;
-        text-overflow: ellipsis;
+        text-overflow: ellipsis; /* Truncate single lines if needed */
     }
      .info-item .info-value.numeric {
         text-align: right;
      }
+     .info-item .info-value.multi-line {
+        white-space: normal; /* Allow wrapping */
+        word-break: break-word;
+        line-height: 1.4;
+        overflow: visible; /* Override hidden overflow for wrapping */
+        text-overflow: clip; /* Don't show ellipsis when wrapping */
+     }
 
-
-    /* Styling for the details section mimicking transaction-details */
     .component-details-section {
         padding: 20px 30px;
         background-color: var(--bg-secondary);
     }
 
-    /* Table styling - Inherit from admin.css but adjust specifics */
     .component-table {
         width: 100%;
         border-collapse: collapse;
     }
      .component-table th, .component-table td {
-        padding: 10px 15px;
+        padding: 10px 12px;
         font-size: 13px;
         text-align: left;
         border-bottom: 1px solid var(--border-primary);
@@ -127,8 +130,6 @@
         white-space: normal;
     }
 
-
-    /* Styles for grouped rows */
     .component-table tr.is-first-in-group td {
         border-top: 2px solid var(--border-primary);
     }
@@ -139,7 +140,6 @@
         vertical-align: top;
         font-weight: 600;
     }
-
 
     .error-message {
         color: var(--accent-red);
@@ -179,7 +179,6 @@
         </div>
         <button type="submit" class="btn btn-primary">View Job Details</button>
 
-        {# Use relative endpoint for PDF link as well #}
         <button type="submit" class="btn btn-secondary"
                 formaction="{{ url_for('reports.coc_report.coc_report_pdf') }}"
                 formmethod="GET">
@@ -190,7 +189,6 @@
 
 {% if job_details %}
 <div class="job-details-container">
-    {# Mimic structure of .job-header-static #}
     <div class="job-header-info">
         <div class="info-item">
             <span class="info-label">Job Number</span>
@@ -200,12 +198,15 @@
             <span class="info-label">Part Number</span>
             <span class="info-value">{{ job_details.part_number }}</span>
         </div>
-
+        <div class="info-item">
+            <span class="info-label">UoM</span>
+            <span class="info-value">{{ job_details.unit_of_measure or 'N/A' }}</span>
+        </div>
         <div class="info-item">
             <span class="info-label">Part Description</span>
-            <span class="info-value">{{ job_details.part_description or 'N/A' }}</span>
+            {# <<< MODIFIED: Added multi-line class >>> #}
+            <span class="info-value multi-line">{{ job_details.part_description or 'N/A' }}</span>
         </div>
-
         <div class="info-item">
             <span class="info-label">Customer</span>
             <span class="info-value">{{ job_details.customer_name }}</span>
@@ -215,6 +216,10 @@
             <span class="info-value">{{ job_details.sales_order or 'N/A' }}</span>
         </div>
         <div class="info-item">
+            <span class="info-label">PO Number</span>
+            <span class="info-value">{{ job_details.customer_po or 'N/A' }}</span>
+        </div>
+        <div class="info-item">
             <span class="info-label">Required Qty</span>
             <span class="info-value numeric">{{ "{:,.2f}".format(job_details.required_qty) }}</span>
         </div>
@@ -222,15 +227,23 @@
             <span class="info-label">Completed Qty</span>
             <span class="info-value numeric">{{ "{:,.2f}".format(job_details.completed_qty) }}</span>
         </div>
+        <div class="info-item">
+            <span class="info-label">Shelf Life</span>
+            <span class="info-value multi-line">{{ job_details.shelf_life_display | replace(',', '<br>') | safe }}</span>
+        </div>
+        <div class="info-item">
+            <span class="info-label">Batch Number</span>
+            <span class="info-value multi-line">{{ job_details.batch_number_display | safe }}</span>
+        </div>
     </div>
 
-    {# Mimc structure of .transaction-details #}
     <div class="component-details-section">
         <table class="component-table">
             <thead>
                 <tr>
                     <th>Part</th>
                     <th>Part Description</th>
+                    <th>UoM</th>
                     <th>Lot #</th>
                     <th>Exp Date</th>
                     <th class="numeric">Starting Lot Qty</th>
@@ -247,6 +260,7 @@
                             <tr class="is-first-in-group">
                                 <td>{{ part_num }}</td>
                                 <td class="description-cell">{{ group.part_description }}</td>
+                                <td>{{ group.unit_of_measure or 'N/A' }}</td>
                                 <td colspan="7" style="text-align: center; color: var(--text-tertiary);">No lot transactions found.</td>
                             </tr>
                         {% else %}
@@ -256,6 +270,7 @@
                                 {% if loop.first %}
                                 <td rowspan="{{ group.lots|length }}">{{ part_num }}</td>
                                 <td rowspan="{{ group.lots|length }}" class="description-cell">{{ group.part_description }}</td>
+                                <td rowspan="{{ group.lots|length }}">{{ group.unit_of_measure or 'N/A' }}</td>
                                 {% endif %}
 
                                 <td>{{ lot_summary.lot_number or 'N/A' }}</td>
@@ -271,7 +286,7 @@
                     {% endfor %}
                 {% else %}
                 <tr>
-                    <td colspan="9" style="text-align: center; color: var(--text-tertiary);">No component transactions found for this job.</td>
+                    <td colspan="10" style="text-align: center; color: var(--text-tertiary);">No component transactions found for this job.</td>
                 </tr>
                 {% endif %}
             </tbody>

@@ -3,6 +3,10 @@
 Route for the Certificate of Compliance (CoC) Report.
 FINAL VERSION: Uses refined logic for Packaged Qty calculation,
 conditionally subtracting Un-Relieve based on timing.
+ADDED: Shelf Life extraction for Finished Good.
+ADDED: Batch Number extraction for Finished Good.
+ADDED: Unit of Measure (UoM) extraction.
+ADDED: Customer PO extraction.
 """
 from flask import (
     Blueprint, render_template, redirect, url_for, session, request, flash, send_file,
@@ -45,6 +49,7 @@ def _get_single_job_details(job_number_str):
     Fetches and processes data for CoC report.
     Refined Logic: 'Packaged Qty' conditionally subtracts Un-Relieve (dtfifo) based on timing.
                    Yield calculation uses the final Packaged Qty.
+    ADDED: Extracts Shelf Life dates, Batch Numbers, UoM, and Customer PO.
     """
     if not job_number_str:
         return None
@@ -65,9 +70,13 @@ def _get_single_job_details(job_number_str):
         'part_description': header.get('part_description', ''),
         'customer_name': header.get('customer_name', 'N/A'),
         'sales_order': str(header.get('sales_order_number', '')) if header.get('sales_order_number') else '',
+        'customer_po': header.get('customer_po', 'N/A'), # <<< ADDED: Customer PO
         'required_qty': safe_float(header.get('required_quantity')),
         'completed_qty': 0.0,
-        'aggregated_transactions': {} # Intermediate storage
+        'unit_of_measure': header.get('unit_of_measure', 'N/A'),
+        'aggregated_transactions': {}, # Intermediate storage
+        'shelf_life_dates': set(),
+        'batch_numbers': set()
     }
 
     finished_good_part = job_data['part_number']
@@ -82,18 +91,28 @@ def _get_single_job_details(job_number_str):
         quantity = safe_float(row.get('fi_quant'))
         fi_id = row.get('fi_id')
         part_num = row.get('part_number', '')
+        raw_exp_date = row.get('fi_expires')
+        batch_num = row.get('lot_number', '')
+        uom = row.get('unit_of_measure', '')
 
-        # Accumulate FG 'Finish Job' qty and store entry
+        # Accumulate FG 'Finish Job' qty, store entry, collect expiration dates and batch numbers
         if action == 'Finish Job' and timestamp and part_num == finished_good_part:
             finish_job_entries.append({'timestamp': timestamp, 'quantity': quantity})
             job_data['completed_qty'] += quantity
+            # --- Collect formatted shelf life date ---
+            formatted_exp = _format_date(raw_exp_date)
+            if formatted_exp != 'N/A':
+                job_data['shelf_life_dates'].add(formatted_exp)
+            # --- Collect batch number ---
+            if batch_num and batch_num.strip():
+                job_data['batch_numbers'].add(batch_num.strip())
+
         # Aggregate component transactions
         elif part_num != finished_good_part: # Ignore FG for aggregation table
             part_desc = row.get('part_description', '')
             raw_lot_num = row.get('lot_number', '')
             stripped_lot_num = raw_lot_num.strip() if raw_lot_num else ''
             normalized_lot_num = stripped_lot_num if stripped_lot_num else 'N/A'
-            raw_exp_date = row.get('fi_expires')
             formatted_exp_date = _format_date(raw_exp_date)
             normalized_exp_date = formatted_exp_date
             agg_key = (part_num, normalized_lot_num, normalized_exp_date)
@@ -105,13 +124,17 @@ def _get_single_job_details(job_number_str):
                 job_data['aggregated_transactions'][agg_key] = {
                     'part_number': part_num, 'part_description': part_desc,
                     'lot_number': normalized_lot_num, 'exp_date': normalized_exp_date,
+                    'unit_of_measure': uom or 'N/A',
                     'Starting Lot Qty': 0.0, 'Ending Inventory': 0.0, 'Gross Packaged Qty': 0.0,
                     'Yield Cost/Scrap': 0.0, 'Yield Loss': 0.0,
-                    '_UnRelieveTransactions': [] # Store {'qty': float, 'timestamp': datetime}
+                    '_UnRelieveTransactions': []
                 }
             # Update description if it was missing initially
             if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
                  job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
+            # Update UoM if it was missing initially
+            if job_data['aggregated_transactions'][agg_key].get('unit_of_measure') == 'N/A' and uom:
+                 job_data['aggregated_transactions'][agg_key]['unit_of_measure'] = uom
 
             # Aggregate quantities based on action
             if action == 'Issued inventory':
@@ -119,26 +142,24 @@ def _get_single_job_details(job_number_str):
             elif action == 'De-issue':
                 job_data['aggregated_transactions'][agg_key]['Ending Inventory'] += quantity
             elif action == 'Un-relieve Job':
-                # Store quantity and timestamp for conditional netting later
                 if timestamp:
                     job_data['aggregated_transactions'][agg_key]['_UnRelieveTransactions'].append({'qty': quantity, 'timestamp': timestamp})
 
-    # --- Step 2: DTFIFO2 'Un-finish Job' Processing (Correctly adjusts FG completed_qty) ---
+    # --- Step 2: DTFIFO2 'Un-finish Job' Processing ---
     for relieve_row in relieve_details:
         action = relieve_row.get('f2_action')
         part_num = relieve_row.get('part_number', '')
         quantity_adjustment = safe_float(relieve_row.get('net_quantity'))
         if action == 'Un-finish Job' and part_num == finished_good_part:
-             job_data['completed_qty'] -= quantity_adjustment # Only subtract FG un-finish
+             job_data['completed_qty'] -= quantity_adjustment
 
     # Sort 'Finish Job' entries and find the last one's timestamp
     finish_job_entries.sort(key=lambda x: x['timestamp'])
     last_finish_job_timestamp = finish_job_entries[-1]['timestamp'] if finish_job_entries else None
 
-    # --- Step 3: DTFIFO2 'Relieve Job' Aggregation (Accumulates Gross Relief) ---
+    # --- Step 3: DTFIFO2 'Relieve Job' Aggregation ---
     relieve_pointer = 0
     processed_relieve_ids = set()
-    # Chronological loop to link lots correctly
     for fj_entry in finish_job_entries:
         fj_timestamp = fj_entry['timestamp']
 
@@ -150,14 +171,13 @@ def _get_single_job_details(job_number_str):
 
             if relieve_id is None: continue
 
-            # Process transactions up to the current Finish Job timestamp
             if relieve_timestamp and relieve_timestamp <= fj_timestamp:
                 if relieve_id not in processed_relieve_ids:
-                    # Aggregate component 'Relieve Job'
                     if action == 'Relieve Job' and relieve_row.get('part_number', '') != finished_good_part:
                         part_num = relieve_row.get('part_number', '')
                         part_desc = relieve_row.get('part_description', '')
                         quantity = safe_float(relieve_row.get('net_quantity'))
+                        uom = relieve_row.get('unit_of_measure', '')
                         linked_fi_id = relieve_row.get('f2_fiid')
                         details = fi_id_to_details_map.get(linked_fi_id, {'lot_number': '', 'exp_date_raw': None})
                         raw_lot_num = details['lot_number']
@@ -167,7 +187,6 @@ def _get_single_job_details(job_number_str):
                         final_lot_num_to_use = stripped_lot_num
                         final_exp_date_to_use = formatted_exp_date
 
-                        # Lot override logic
                         if not stripped_lot_num:
                             found_existing_lot = False
                             for existing_key, existing_summary in job_data['aggregated_transactions'].items():
@@ -186,58 +205,52 @@ def _get_single_job_details(job_number_str):
 
                         if not part_num: continue
 
-                        # Initialize if needed
                         if agg_key not in job_data['aggregated_transactions']:
                             job_data['aggregated_transactions'][agg_key] = {
                                 'part_number': part_num, 'part_description': part_desc,
                                 'lot_number': normalized_lot_num, 'exp_date': normalized_exp_date,
+                                'unit_of_measure': uom or 'N/A',
                                 'Starting Lot Qty': 0.0, 'Ending Inventory': 0.0, 'Gross Packaged Qty': 0.0,
                                 'Yield Cost/Scrap': 0.0, 'Yield Loss': 0.0, '_UnRelieveTransactions': []
                             }
                         if not job_data['aggregated_transactions'][agg_key].get('part_description') and part_desc:
                              job_data['aggregated_transactions'][agg_key]['part_description'] = part_desc
+                        if job_data['aggregated_transactions'][agg_key].get('unit_of_measure') == 'N/A' and uom:
+                             job_data['aggregated_transactions'][agg_key]['unit_of_measure'] = uom
 
-                        # Accumulate Gross Relieve Qty
                         job_data['aggregated_transactions'][agg_key]['Gross Packaged Qty'] += quantity
 
-                    processed_relieve_ids.add(relieve_id) # Mark as processed regardless of type
+                    processed_relieve_ids.add(relieve_id)
 
-                # Move pointer only if processed
                 if relieve_id in processed_relieve_ids:
                     relieve_pointer = i + 1
 
             elif relieve_timestamp and relieve_timestamp > fj_timestamp:
-                 break # Move to next Finish Job timestamp
+                 break
 
     # --- Step 4: Final Yield Calculation with Conditional Netting ---
     for agg_key, summary in job_data['aggregated_transactions'].items():
         issued = summary.get('Starting Lot Qty', 0.0)
-        gross_packaged_qty = summary.get('Gross Packaged Qty', 0.0) # Gross Relieve from DTFIFO2
+        gross_packaged_qty = summary.get('Gross Packaged Qty', 0.0)
         unrelieve_transactions = summary.get('_UnRelieveTransactions', [])
         deissue = summary.get('Ending Inventory', 0.0)
 
-        # Calculate Net Un-Relieve amount based on timing relative to LAST Finish Job
         net_unrelieve_to_subtract = 0.0
         for unrelieve in unrelieve_transactions:
-            # Only subtract if unrelieve happened BEFORE or AT the last production step
             if last_finish_job_timestamp and unrelieve['timestamp'] <= last_finish_job_timestamp:
                 net_unrelieve_to_subtract += unrelieve['qty']
 
-        # Final Packaged Qty = Gross Relieve - (Applicable Un-Relieve)
         final_packaged_qty = gross_packaged_qty - net_unrelieve_to_subtract
-        summary['Packaged Qty'] = final_packaged_qty # Store the conditionally netted value
+        summary['Packaged Qty'] = final_packaged_qty
 
-        # Yield Cost = Issued - Final Packaged Qty - Returned (DeIssue)
         yield_cost = issued - final_packaged_qty - deissue
         summary['Yield Cost/Scrap'] = yield_cost
 
-        # Yield Loss % based on Final Packaged Qty
         summary['Yield Loss'] = (yield_cost / final_packaged_qty) * 100.0 if final_packaged_qty != 0 else 0.0
 
-    # Finalize list and group for display
+    # --- Finalize list, group for display, format shelf life, and format batch numbers ---
     job_data['aggregated_list'] = [
         summary for summary in job_data['aggregated_transactions'].values()
-        # Filter out 0800- parts AND the main finished good itself
         if not summary.get('part_number', '').startswith('0800-')
            and summary.get('part_number', '') != job_data['part_number']
     ]
@@ -249,14 +262,30 @@ def _get_single_job_details(job_number_str):
     for summary in job_data['aggregated_list']:
         part_num = summary.get('part_number', '')
         if part_num not in grouped_list:
-            grouped_list[part_num] = { 'part_description': summary.get('part_description', ''), 'lots': [] }
-        # Clean up temporary fields before adding to final list
+            grouped_list[part_num] = {
+                'part_description': summary.get('part_description', ''),
+                'unit_of_measure': summary.get('unit_of_measure', 'N/A'),
+                'lots': []
+            }
+        if grouped_list[part_num]['unit_of_measure'] == 'N/A' and summary.get('unit_of_measure') != 'N/A':
+            grouped_list[part_num]['unit_of_measure'] = summary.get('unit_of_measure')
+
         if '_UnRelieveTransactions' in summary: del summary['_UnRelieveTransactions']
         if 'Gross Packaged Qty' in summary: del summary['Gross Packaged Qty']
         grouped_list[part_num]['lots'].append(summary)
 
     job_data['grouped_list'] = grouped_list
-    del job_data['aggregated_transactions'] # Remove intermediate storage
+    del job_data['aggregated_transactions']
+
+    # --- Format shelf life dates for display ---
+    sorted_dates = sorted(list(job_data['shelf_life_dates']))
+    job_data['shelf_life_display'] = ', '.join(sorted_dates) if sorted_dates else 'N/A'
+    del job_data['shelf_life_dates']
+
+    # --- Format batch numbers for display ---
+    sorted_batches = sorted(list(job_data['batch_numbers']))
+    job_data['batch_number_display'] = '<br>'.join(sorted_batches) if sorted_batches else 'N/A'
+    del job_data['batch_numbers']
 
     return job_data
 # ***** END FINAL HELPER FUNCTION *****
