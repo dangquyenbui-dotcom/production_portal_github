@@ -104,6 +104,11 @@ class ErpService:
 
     def get_open_order_schedule(self):
         return self.sales_queries.get_open_order_schedule()
+    
+    def get_detailed_fg_inventory(self, start_date=None, end_date=None):
+        """Delegates call to InventoryQueries to get detailed FG inventory."""
+        return self.inventory_queries.get_detailed_fg_inventory(start_date, end_date)
+    # --- END NEW METHOD ---
 
 
 # --- Singleton instance management ---

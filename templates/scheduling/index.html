@@ -156,8 +156,8 @@
         cursor: pointer;
         font-weight: bold;
     }
-    [data-theme="dark"] .editable { 
-        background-color: #42422a; 
+    [data-theme="dark"] .editable {
+        background-color: #42422a;
     }
     .editable:focus {
         background-color: #ffffff;
@@ -174,8 +174,8 @@
         cursor: not-allowed;
         font-weight: normal;
     }
-    [data-theme="dark"] .editable.view-only { 
-        background-color: transparent; 
+    [data-theme="dark"] .editable.view-only {
+        background-color: transparent;
     }
 
     .status-indicator {
@@ -201,7 +201,7 @@
         display: none;
         position: absolute;
         top: 100%;
-        left: 0; /* <-- THIS LINE WAS CHANGED FROM right: 0; */
+        left: 0; /* Align dropdown with the left edge of the button */
         background-color: var(--bg-secondary);
         border: 1px solid var(--border-primary);
         border-radius: 8px;
@@ -258,7 +258,7 @@
         color: var(--alert-warning-text);
         border-color: var(--alert-warning-border);
     }
-    
+
     /* --- NEW Sorting Styles --- */
     .sortable {
         cursor: pointer;
@@ -291,6 +291,7 @@
         overflow: hidden;
         text-overflow: ellipsis;
         padding-right: 30px; /* Space for a dropdown arrow if needed */
+        min-width: 100px; /* Ensure button isn't too small */
     }
     .multiselect-dropdown {
         display: none;
@@ -380,7 +381,8 @@
             <div class="multiselect-container">
                 <button type="button" id="facilityFilterBtn" class="form-select filter-select multiselect-btn">All</button>
                 <div id="facilityFilterDropdown" class="multiselect-dropdown">
-                    </div>
+                    {# Options populated by JS #}
+                </div>
             </div>
         </div>
         <div class="filter-group">
@@ -392,7 +394,8 @@
             <div class="multiselect-container">
                 <button type="button" id="soTypeFilterBtn" class="form-select filter-select multiselect-btn">All</button>
                 <div id="soTypeFilterDropdown" class="multiselect-dropdown">
-                    </div>
+                    {# Options populated by JS #}
+                </div>
             </div>
         </div>
         <div class="filter-group">
@@ -404,14 +407,16 @@
             <div class="multiselect-container">
                 <button type="button" id="dueShipFilterBtn" class="form-select filter-select multiselect-btn">All</button>
                 <div id="dueShipFilterDropdown" class="multiselect-dropdown">
-                    </div>
+                    {# Options populated by JS #}
+                </div>
             </div>
         </div>
         <button class="btn btn-secondary" id="resetBtn">Reset</button>
         <div class="column-toggle-container">
             <button class="btn btn-secondary" id="columnsBtn">Columns</button>
             <div id="column-dropdown" class="column-toggle-dropdown">
-                </div>
+                {# Options populated by JS #}
+            </div>
         </div>
     </div>
     <div class="refresh-container">
@@ -429,6 +434,7 @@
     <table class="grid-table">
         <thead>
             <tr>
+                {# Headers with data-column-id and data-type #}
                 <th class="sortable" data-column-id="Facility" data-type="string">Facility<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="BU" data-type="string">BU<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="SO" data-type="numeric">SO<span class="sort-indicator"></span></th>
@@ -457,6 +463,8 @@
                 <th class="sortable" data-column-id="Requested Date" data-type="date">Requested Date<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="Comp Arrived Date" data-type="date">Comp Arrived Date<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="Ordered Date" data-type="date">Ordered Date<span class="sort-indicator"></span></th>
+                {# Hidden column for SO Type filtering #}
+                <th data-column-id="SO Type" style="display:none;">SO Type</th>
             </tr>
         </thead>
         <tbody id="schedule-body">
@@ -479,11 +487,11 @@
                 <td class="numeric">{{ "{:,.2f}".format((row['High Risk'] | float) or 0) }}</td>
                 <td class="editable numeric {% if not user.is_scheduling_admin %}view-only{% endif %}"
                     {% if user.is_scheduling_admin %}contenteditable="true"{% endif %}
-                    data-risk-type="No/Low Risk Qty" 
+                    data-risk-type="No/Low Risk Qty"
                     data-price="{{ row['Unit Price'] }}">{{ "{:,.2f}".format((row['No/Low Risk Qty'] | float) or 0) }}</td>
                 <td class="editable numeric {% if not user.is_scheduling_admin %}view-only{% endif %}"
                     {% if user.is_scheduling_admin %}contenteditable="true"{% endif %}
-                    data-risk-type="High Risk Qty" 
+                    data-risk-type="High Risk Qty"
                     data-price="{{ row['Unit Price'] }}">{{ "{:,.2f}".format((row['High Risk Qty'] | float) or 0) }}</td>
                 <td data-field="UoM">{{ row['UoM'] }}</td>
                 <td class="numeric" data-field="Qty Per UoM">{{ row['Qty Per UoM'] }}</td>
@@ -496,11 +504,12 @@
                 <td data-field="Requested Date">{{ row['Requested Date'] or '' }}</td>
                 <td data-field="Comp Arrived Date">{{ row['Comp Arrived Date'] or '' }}</td>
                 <td data-field="Ordered Date">{{ row['Ordered Date'] or '' }}</td>
-                <td style="display:none;" data-field="SO Type">{{ row['SO Type'] }}</td>
+                {# Hidden cell for SO Type filtering #}
+                <td data-field="SO Type" style="display:none;">{{ row['SO Type'] }}</td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="28" style="text-align: center; padding: 20px;">No scheduling data found.</td>
+                <td colspan="28" style="text-align: center; padding: 20px;">No scheduling data found.</td> {# Adjusted colspan #}
             </tr>
             {% endfor %}
         </tbody>
@@ -512,5 +521,17 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/scheduling.js') }}"></script>
+{# Load common utilities from base template #}
+{{ super() }}
+
+{# Load Scheduling modules in dependency order #}
+<script src="{{ url_for('static', filename='js/scheduling_utils.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scheduling_columns.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scheduling_sorting.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scheduling_filters.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scheduling_editing.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scheduling_export.js') }}"></script>
+
+{# Load the main initializer last #}
+<script src="{{ url_for('static', filename='js/scheduling_init.js') }}"></script>
 {% endblock %}
