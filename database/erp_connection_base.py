@@ -2,6 +2,7 @@
 """
 Dedicated ERP Database Connection Base.
 Handles the raw pyodbc connection logic.
+ADDED: MARS_Connection=yes to connection string to prevent "busy with results" error.
 """
 import pyodbc
 import traceback
@@ -28,6 +29,7 @@ class ERPConnection:
         for driver in drivers:
             try:
                 # The f-string correctly adds the necessary braces around the driver name
+                # *** ADDED MARS_Connection=yes ***
                 connection_string = (
                     f"DRIVER={{{driver}}};"
                     f"SERVER={Config.ERP_DB_SERVER},{Config.ERP_DB_PORT};"
@@ -35,10 +37,11 @@ class ERPConnection:
                     f"UID={Config.ERP_DB_USERNAME};"
                     f"PWD={Config.ERP_DB_PASSWORD};"
                     f"TrustServerCertificate=yes;"
+                    f"MARS_Connection=yes;" # <<< ADD THIS LINE
                     f"Connection Timeout={Config.ERP_DB_TIMEOUT};"
                 )
                 self.connection = pyodbc.connect(connection_string, autocommit=True)
-                print(f"✅ [ERP_DB] Connection successful using driver: {driver}")
+                print(f"✅ [ERP_DB] Connection successful using driver: {driver} (MARS Enabled)")
                 self._connection_string = connection_string  # Save the working string
                 break  # Exit loop on successful connection
             except pyodbc.Error as e:
@@ -58,24 +61,29 @@ class ERPConnection:
         """Executes a SQL query and returns results as a list of dicts."""
         if not self.connection:
             print("❌ [ERP_DB] Cannot execute query, no active connection.")
-            return []
-
-        try:
-            # Check if connection is still valid
-            # A simple check like this might not always detect a stale connection.
-            # Depending on the driver and DB, a `SELECT 1` might be needed.
-            if self.connection.closed:
-                 print("❌ [ERP_DB] Connection is closed. Cannot execute query.")
+            # Attempt to reconnect *once* if connection is None
+            print("ℹ️ [ERP_DB] Attempting to reconnect...")
+            self.__init__() # Re-run the connection logic
+            if not self.connection:
+                 print("❌ [ERP_DB] Reconnect failed. Aborting query.")
                  return []
 
+
+        cursor = None # Initialize cursor to None
+        try:
+            # Check if connection is still valid by creating a cursor
             cursor = self.connection.cursor()
+
             cursor.execute(sql, params or [])
             if cursor.description:
                 columns = [column[0] for column in cursor.description]
-                results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-                cursor.close()
+                # Use a try-except block for fetchall in case of disconnection during fetch
+                try:
+                    results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                except pyodbc.Error as fetch_error:
+                    print(f"❌ [ERP_DB] Error fetching results: {fetch_error}")
+                    results = [] # Return empty list if fetch fails
                 return results
-            cursor.close()
             # Handle cases like INSERT/UPDATE/DELETE where description might be None
             # If autocommit=True, changes are already committed.
             return [] # Return empty list for non-SELECT or empty results
@@ -85,11 +93,22 @@ class ERPConnection:
             print(f"   Params: {params}")
             traceback.print_exc()
             # Attempt to reconnect might be added here, but be careful of loops.
+            # Close potentially problematic connection
+            self.close()
             return []
         except Exception as e:
             print(f"❌ [ERP_DB] Unexpected error during query execution: {e}")
             traceback.print_exc()
+             # Close potentially problematic connection
+            self.close()
             return []
+        finally:
+             if cursor:
+                 try:
+                     cursor.close()
+                 except pyodbc.Error as cursor_close_error:
+                     print(f"⚠️ [ERP_DB] Error closing cursor: {cursor_close_error}")
+
 
     def close(self):
         """Closes the database connection."""
@@ -111,12 +130,27 @@ def get_erp_db_connection():
     Creates a new one if it doesn't exist or seems closed.
     """
     global _erp_connection_instance
-    # Check if instance exists and if the connection is still open (basic check)
-    if _erp_connection_instance is None or getattr(_erp_connection_instance.connection, 'closed', True):
-        print("ℹ️ [ERP_DB] Creating new ERPConnection instance.")
+    # Check if instance exists and if the connection seems valid
+    connection_valid = False
+    if _erp_connection_instance and _erp_connection_instance.connection:
+        try:
+            # More reliable check: attempt a simple query
+            cursor = _erp_connection_instance.connection.cursor()
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+            cursor.close()
+            connection_valid = True
+        except pyodbc.Error:
+             print("ℹ️ [ERP_DB] Existing connection test failed. Recreating instance.")
+             _erp_connection_instance.close() # Close the potentially dead connection
+             _erp_connection_instance = None # Force recreation
+
+    if not connection_valid:
+        print("ℹ️ [ERP_DB] Creating/Recreating ERPConnection instance.")
         _erp_connection_instance = ERPConnection()
         if _erp_connection_instance.connection is None:
              # Handle the case where the connection failed during initialization
              print("❌ [ERP_DB] Failed to create a valid ERPConnection.")
              return None # Or raise an exception
+
     return _erp_connection_instance
