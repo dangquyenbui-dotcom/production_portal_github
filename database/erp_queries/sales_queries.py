@@ -1,6 +1,9 @@
 # database/erp_queries/sales_queries.py
 """
 ERP Queries related to Sales Orders and Shipments.
+ADDED: Method to get detailed shipments for the current month.
+MODIFIED: Added BU column to detailed shipments query.
+MODIFIED: Changed detailed shipments query to use Customer Name from Product (pr_user5) instead of BillTo/ShipTo.
 """
 from database.erp_connection_base import get_erp_db_connection
 from datetime import datetime, timedelta
@@ -9,12 +12,7 @@ class SalesQueries:
     """Contains ERP query methods specific to Sales."""
 
     def get_split_fg_on_hand_value(self):
-        """
-        Calculates the value of Finished Goods inventory split into three date buckets
-        relative to the 21st of the previous and current month.
-        MODIFIED: Converts date objects to 'YYYY-MM-DD' strings before passing as parameters
-                  to avoid SQLBindParameter errors with older ODBC drivers.
-        """
+        # ... (existing code remains the same) ...
         db = get_erp_db_connection()
         if not db:
             # Return default structure if DB connection fails
@@ -76,10 +74,12 @@ class SalesQueries:
         # Return default structure if query fails or returns no results
         return {'label1': label1, 'value1': 0, 'label2': label2, 'value2': 0, 'label3': label3, 'value3': 0}
 
+
     def get_shipped_for_current_month(self):
         """Calculates the total value of orders shipped in the current calendar month."""
+        # ... (existing code remains the same) ...
         db = get_erp_db_connection()
-        if not db: return 0
+        if not db: return 0.0 # Return float
         sql = """
             SELECT SUM(det.or_shipquant * det.or_price) AS total_shipped_value
             FROM dttord ord
@@ -93,8 +93,63 @@ class SalesQueries:
         # Ensure a float/decimal is returned, defaulting to 0.0
         return result[0]['total_shipped_value'] if result and result[0]['total_shipped_value'] is not None else 0.0
 
+
+    # --- MODIFIED METHOD ---
+    def get_detailed_shipments_current_month(self):
+        """
+        Retrieves detailed line item information for orders shipped in the current calendar month.
+        Includes BU derived from product category and Customer Name from Product (pr_user5).
+        """
+        db = get_erp_db_connection()
+        if not db: return []
+        sql = """
+            SELECT
+                ord.to_ordnum AS SONumber,
+                ord.to_shipped AS ShipDate,
+                ord.to_billpo AS CustomerPO,
+                -- *** CHANGED: Get Customer from Product ***
+                ISNULL(cust.p1_name, 'N/A') AS CustomerName,
+                prod.pr_codenum AS PartNumber,
+                prod.pr_descrip AS PartDescription,
+                CASE WHEN ca.ca_name = 'Stick Pack' THEN 'SP' ELSE 'BPS' END AS BU,
+                det.or_shipquant AS ShippedQuantity,
+                det.or_price AS UnitPrice,
+                (det.or_shipquant * det.or_price) AS LineValue,
+                sm.sm_lname AS SalesRep,
+                CASE ord.to_ordtype
+                    WHEN 's' THEN 'Sales Order'
+                    WHEN 'm' THEN 'ICT Order'
+                    ELSE ord.to_ordtype
+                END AS OrderType
+            FROM dttord ord
+            INNER JOIN dtord det ON ord.to_id = det.or_toid
+            LEFT JOIN dmprod prod ON det.or_prid = prod.pr_id
+            LEFT JOIN dmcats ca ON prod.pr_caid = ca.ca_id
+            -- *** CHANGED: Join for Customer Name from Product ***
+            LEFT JOIN dmpr1 cust ON prod.pr_user5 = cust.p1_id
+            -- *** REMOVED: Joins for BillTo/ShipTo Customers ***
+            -- LEFT JOIN dmpr1 bill_cust ON ord.to_biid = bill_cust.p1_id
+            -- LEFT JOIN dmpr1 ship_cust ON ord.to_shid = ship_cust.p1_id
+            LEFT JOIN dmsman sm ON ord.to_s1id = sm.sm_id
+            WHERE ord.to_shipped IS NOT NULL AND ord.to_status = 'c'
+              AND ord.to_ordtype IN ('s', 'm')
+              AND MONTH(ord.to_shipped) = MONTH(GETDATE())
+              AND YEAR(ord.to_shipped) = YEAR(GETDATE())
+            ORDER BY ord.to_shipped DESC, ord.to_ordnum ASC, prod.pr_codenum ASC;
+        """
+        results = db.execute_query(sql)
+
+        # Convert datetime objects to strings
+        if results:
+            for row in results:
+                if isinstance(row.get('ShipDate'), datetime):
+                    row['ShipDate'] = row['ShipDate'].strftime('%Y-%m-%d')
+        return results
+    # --- END MODIFIED METHOD ---
+
+
     def get_open_order_schedule(self):
-        """Retrieves a detailed list of all open sales orders with related production and risk data."""
+        # ... (existing code remains the same) ...
         db = get_erp_db_connection()
         if not db: return []
         # This SQL is now corrected to match the original "Live" logic for [Net Qty]
@@ -186,5 +241,6 @@ class SalesQueries:
             LEFT JOIN ProducedQuantities pq ON CAST(aod.to_ordnum AS VARCHAR) = pq.SalesOrder AND aod.pr_codenum = pq.PartNumber
             LEFT JOIN TotalShippedQuantities tsq ON (FLOOR(aod.to_ordnum / 100) * 100) = tsq.original_so_num AND aod.pr_codenum = tsq.pr_codenum
             ORDER BY aod.to_ordnum DESC, aod.pr_codenum;
+
         """
         return db.execute_query(sql)

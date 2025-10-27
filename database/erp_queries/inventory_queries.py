@@ -1,8 +1,10 @@
 # database/erp_queries/inventory_queries.py
 """
 ERP Queries related to Inventory.
+MODIFIED: Added Customer Name to get_detailed_fg_inventory query.
 """
 from database.erp_connection_base import get_erp_db_connection
+from datetime import datetime # Ensure datetime is imported if used for type hints, etc.
 
 class InventoryQueries:
     """Contains ERP query methods specific to Inventory."""
@@ -11,6 +13,7 @@ class InventoryQueries:
         """
         Retrieves raw material inventory categorized by status. Excludes Finished Goods.
         """
+        # ... (no changes to this method) ...
         db = get_erp_db_connection()
         if not db: return []
         sql = """
@@ -28,11 +31,13 @@ class InventoryQueries:
         """
         return db.execute_query(sql)
 
+
     def get_on_hand_inventory(self):
         """
         Retrieves Finished Goods inventory (parts starting with 'T') grouped by part number.
         Splits quantities into 'approved' and 'pending_qc'.
         """
+        # ... (no changes to this method) ...
         db = get_erp_db_connection()
         if not db: return []
         sql = """
@@ -49,10 +54,11 @@ class InventoryQueries:
         """
         return db.execute_query(sql)
 
-    # --- NEW METHOD ---
+
+    # --- MODIFIED METHOD ---
     def get_detailed_fg_inventory(self, start_date=None, end_date=None):
         """
-        Retrieves detailed Finished Goods inventory data (Part, Lot, Date, Qty, Warehouse, Value)
+        Retrieves detailed Finished Goods inventory data (Part, Lot, Date, Qty, Warehouse, Value, Customer)
         optionally filtered by lot date range. Dates should be in 'YYYY-MM-DD' format.
         """
         db = get_erp_db_connection()
@@ -62,6 +68,8 @@ class InventoryQueries:
             SELECT
                 p.pr_codenum AS PartNumber,
                 p.pr_descrip AS PartDescription,
+                -- *** ADDED Customer Name ***
+                ISNULL(cust.p1_name, 'N/A') AS CustomerName,
                 f.fi_lotnum AS SystemLot,
                 f.fi_userlot AS UserLot,
                 f.fi_lotdate AS LotDate,
@@ -74,6 +82,8 @@ class InventoryQueries:
             FROM dtfifo f
             JOIN dmprod p ON f.fi_prid = p.pr_id
             JOIN dmware w ON f.fi_waid = w.wa_id
+            -- *** ADDED Join for Customer ***
+            LEFT JOIN dmpr1 cust ON p.pr_user5 = cust.p1_id
             WHERE f.fi_balance > 0
               AND p.pr_codenum LIKE 'T%'
               AND w.wa_name IN ('DUARTE', 'IRWINDALE')
@@ -92,5 +102,22 @@ class InventoryQueries:
 
         sql += " ORDER BY p.pr_codenum, f.fi_lotdate, f.fi_lotnum;"
 
-        return db.execute_query(sql, params)
-    # --- END NEW METHOD ---
+        results = db.execute_query(sql, params)
+
+        # Convert datetime objects to strings
+        if results:
+            for row in results:
+                if isinstance(row.get('LotDate'), datetime):
+                    row['LotDate'] = row['LotDate'].strftime('%Y-%m-%d')
+                if isinstance(row.get('ExpirationDate'), datetime):
+                    # Handle potential default/invalid dates from ERP
+                    if row['ExpirationDate'].year <= 1900:
+                         row['ExpirationDate'] = 'N/A'
+                    else:
+                         row['ExpirationDate'] = row['ExpirationDate'].strftime('%Y-%m-%d')
+                elif row.get('ExpirationDate') is None:
+                     row['ExpirationDate'] = 'N/A' # Explicitly set None to 'N/A'
+
+
+        return results
+    # --- END MODIFIED METHOD ---

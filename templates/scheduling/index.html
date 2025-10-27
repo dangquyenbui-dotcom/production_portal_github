@@ -13,6 +13,17 @@
         padding: 0 1vw;
     }
 
+    /* --- ADDED: Clickable card style --- */
+    .clickable-card {
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .clickable-card:hover {
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-md);
+    }
+    /* --- END --- */
+
     .controls-bar {
         background: var(--bg-secondary);
         padding: 15px 20px;
@@ -338,10 +349,12 @@
 </div>
 
 <div class="summary-grid">
-    <div class="summary-card orange">
+    {# --- ADDED ID and clickable-card class --- #}
+    <div class="summary-card orange clickable-card" id="shipped-card">
         <div class="summary-value" id="shipped-as-value">${{ "{:,.2f}".format(shipped_current_month or 0) }}</div>
         <div class="summary-label">Shipped as {{ now.strftime('%m/%y') }}</div>
     </div>
+    {# --- END --- #}
     <div class="summary-card green">
         <div class="summary-value" id="total-no-low-risk">$0.00</div>
         <div class="summary-label">$ No/Low Risk Qty</div>
@@ -350,15 +363,15 @@
         <div class="summary-value" id="total-high-risk">$0.00</div>
         <div class="summary-label">$ High Risk</div>
     </div>
-    <div class="summary-card blue">
+    <div class="summary-card blue clickable-card" id="fg-card-prior" data-bucket="prior">
         <div class="summary-value" id="fg-on-hand-before">{{ "${:,.2f}".format(fg_on_hand_split.value1 or 0) }}</div>
         <div class="summary-label">{{ fg_on_hand_split.label1 }}</div>
     </div>
-    <div class="summary-card blue">
+    <div class="summary-card blue clickable-card" id="fg-card-mid" data-bucket="mid">
         <div class="summary-value" id="fg-on-hand-current">{{ "${:,.2f}".format(fg_on_hand_split.value2 or 0) }}</div>
         <div class="summary-label">{{ fg_on_hand_split.label2 }}</div>
     </div>
-    <div class="summary-card blue">
+    <div class="summary-card blue clickable-card" id="fg-card-recent" data-bucket="recent">
         <div class="summary-value" id="fg-on-hand-future">{{ "${:,.2f}".format(fg_on_hand_split.value3 or 0) }}</div>
         <div class="summary-label">{{ fg_on_hand_split.label3 }}</div>
     </div>

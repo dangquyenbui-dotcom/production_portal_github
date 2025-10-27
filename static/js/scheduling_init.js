@@ -26,9 +26,9 @@ document.addEventListener('DOMContentLoaded', function() {
     schedulingApp.utils.updateLastUpdatedTime();
 
     // Show refresh confirmation if applicable
-    if (sessionStorage.getItem('wasRefressed')) { // Corrected key
+    if (sessionStorage.getItem('wasRefreshed')) { // Corrected key check
         dtUtils.showAlert('Data refreshed successfully!', 'success');
-        sessionStorage.removeItem('wasRefressed'); // Corrected key
+        sessionStorage.removeItem('wasRefreshed'); // Corrected key removal
     }
 
      // --- Add global click listener AFTER other initializations ---
@@ -64,7 +64,7 @@ schedulingApp.init = {
         document.getElementById('refreshBtn').addEventListener('click', () => {
             schedulingApp.filters.saveFilters();
             schedulingApp.sorting.saveSortState(); // Save sort state
-            sessionStorage.setItem('wasRefressed', 'true'); // Corrected key
+            sessionStorage.setItem('wasRefreshed', 'true'); // Set refresh flag with correct key
             window.location.reload();
         });
 
@@ -78,9 +78,27 @@ schedulingApp.init = {
 
         // Sorting listeners are attached in schedulingApp.sorting.initializeSorting
         // Column listeners are attached in schedulingApp.columns.initializeColumnToggle
+
+        // --- FG summary card clicks ---
+        document.getElementById('fg-card-prior')?.addEventListener('click', function() {
+            schedulingApp.export.exportFgDetails('prior', this);
+        });
+        document.getElementById('fg-card-mid')?.addEventListener('click', function() {
+            schedulingApp.export.exportFgDetails('mid', this);
+        });
+        document.getElementById('fg-card-recent')?.addEventListener('click', function() {
+            schedulingApp.export.exportFgDetails('recent', this);
+        });
+
+        // --- NEW: Add listener for Shipped summary card click ---
+        document.getElementById('shipped-card')?.addEventListener('click', function() {
+            schedulingApp.export.exportShippedDetails(this);
+        });
+        // --- END ---
     },
 
     setupMultiSelect: function(baseId) {
+        // ... (existing code remains the same) ...
         const btn = document.getElementById(`${baseId}Btn`);
         const dropdown = document.getElementById(`${baseId}Dropdown`);
         if (!btn || !dropdown) return;
