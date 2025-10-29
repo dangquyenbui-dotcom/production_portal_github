@@ -11,6 +11,7 @@
 {% endblock %}
 
 {% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
 <style>
     /* Page-specific status styles */
     .status-container {
@@ -253,6 +254,34 @@
         box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
     }
     
+    /* --- NEW STYLES --- */
+    .sessions-table {
+        background: var(--bg-secondary);
+        border-radius: 10px;
+        padding: 25px;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-primary);
+        margin-top: 30px;
+    }
+    
+    .sessions-table h3 {
+        color: var(--text-primary);
+        font-size: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .kick-btn {
+        background: var(--alert-error-bg);
+        color: var(--alert-error-text);
+        border: 1px solid var(--alert-error-border);
+        font-weight: 600;
+    }
+    .kick-btn:hover {
+        background: var(--accent-red);
+        color: white;
+    }
+    /* --- END NEW STYLES --- */
+
     @media (max-width: 768px) {
         .connections-grid {
             grid-template-columns: 1fr;
@@ -275,6 +304,8 @@
     <h1>System Status</h1>
     <p>Current system health and connection status</p>
 </div>
+
+<div id="alerts"></div>
 
 <div class="status-container">
     <div class="status-header">
@@ -361,8 +392,8 @@
             <div class="stat-label">Active Users Today</div>
         </div>
         <div class="stat-box">
-            <div class="stat-value">{{ '✅' if status.db_connected else '❌' }}</div>
-            <div class="stat-label">DB Health</div>
+            <div class="stat-value" id="active-session-count">{{ status.active_sessions }}</div>
+            <div class="stat-label">Active Sessions</div>
         </div>
     </div>
     
@@ -389,11 +420,54 @@
     </div>
 </div>
 
+<div class="sessions-table data-table">
+    <h3>Active User Sessions</h3>
+    {% if status.active_sessions_list %}
+    <table class="table">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>IP Address</th>
+                <th>Login Time</th>
+                <th>Last Activity</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="session-table-body">
+            {% for sess in status.active_sessions_list %}
+            <tr id="session-row-{{ sess.session_id }}">
+                <td>
+                    <strong>{{ sess.username }}</strong>
+                    {% if sess.username == user.username %}
+                    <span class="status-badge status-active">This is you</span>
+                    {% endif %}
+                </td>
+                <td>{{ sess.ip_address or 'Unknown' }}</td>
+                <td>{{ sess.login_date.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                <td>{{ sess.last_activity.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                <td>
+                    {% if sess.username != user.username %}
+                    <button class="btn btn-secondary btn-sm kick-btn" 
+                            onclick="kickUser('{{ sess.session_id }}', '{{ sess.username }}', event)">
+                        🚫 Kick
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <p>No active user sessions found.</p>
+    </div>
+    {% endif %}
+</div>
 <a href="/dashboard" class="back-link">← Back to Dashboard</a>
 {% endblock %}
 
 {% block scripts %}
-<script>
+{{ super() }} <script>
     // Auto-refresh status every 30 seconds
     let refreshInterval = null;
     
@@ -414,5 +488,52 @@
             clearInterval(refreshInterval);
         }
     });
+
+    // --- NEW KICK USER SCRIPT ---
+    function kickUser(sessionId, username, event) {
+        if (!confirm(`Are you sure you want to forcefully log out "${username}"?`)) {
+            return;
+        }
+        
+        const button = event.target;
+        button.disabled = true;
+        button.textContent = 'Kicking...';
+        
+        fetch('/admin/users/kick', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionId,
+                username: username
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                dtUtils.showAlert(data.message, 'success');
+                // Remove the row from the table
+                const row = document.getElementById(`session-row-${sessionId}`);
+                if (row) {
+                    row.style.opacity = '0';
+                    setTimeout(() => row.remove(), 300);
+                }
+                // Update the count
+                const countEl = document.getElementById('active-session-count');
+                if (countEl) {
+                    const newCount = parseInt(countEl.textContent) - 1;
+                    countEl.textContent = newCount >= 0 ? newCount : 0;
+                }
+            } else {
+                dtUtils.showAlert(`Error: ${data.message}`, 'error');
+                button.disabled = false;
+                button.textContent = '🚫 Kick';
+            }
+        })
+        .catch(error => {
+            dtUtils.showAlert('An unexpected error occurred.', 'error');
+            button.disabled = false;
+            button.textContent = '🚫 Kick';
+        });
+    }
 </script>
 {% endblock %}

@@ -5,9 +5,9 @@ User management routes for viewing user activity and permissions
 from flask import Blueprint, render_template, redirect, url_for, session, jsonify, request, flash
 from auth import require_login, require_admin
 from routes.main import validate_session
-from database import audit_db
+from database import audit_db, sessions_db # <-- ADD sessions_db
 from database.users import UsersDB
-from utils import get_client_info
+from utils import get_client_info # <-- ADD get_client_info
 
 
 admin_users_bp = Blueprint('admin_users', __name__)
@@ -211,3 +211,43 @@ def user_stats():
     except Exception as e:
         print(f"Error getting user stats: {str(e)}")
         return jsonify({'success': False, 'message': 'An error occurred'})
+
+# --- NEW ROUTE ---
+@admin_users_bp.route('/users/kick', methods=['POST'])
+@validate_session
+def kick_user_session():
+    """Forcefully invalidates a specific user session"""
+    if not require_admin(session):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        data = request.get_json()
+        session_id_to_kick = data.get('session_id')
+        username_to_kick = data.get('username', 'Unknown user')
+        
+        if not session_id_to_kick:
+            return jsonify({'success': False, 'message': 'Session ID is required.'}), 400
+        
+        # Invalidate the specific session
+        success = sessions_db.end_session(session_id_to_kick)
+        
+        if success:
+            # Log the admin action
+            ip, user_agent = get_client_info()
+            audit_db.log(
+                table_name='ActiveSessions',
+                record_id=None,
+                action_type='KICK',
+                username=session['user']['username'],
+                ip=ip,
+                user_agent=user_agent,
+                notes=f"Forcefully logged out user: {username_to_kick} (Session: {session_id_to_kick[:8]}...)"
+            )
+            return jsonify({'success': True, 'message': f'User {username_to_kick} has been logged out.'})
+        else:
+            return jsonify({'success': False, 'message': 'Failed to terminate session.'}), 500
+    
+    except Exception as e:
+        print(f"Error kicking user: {str(e)}")
+        return jsonify({'success': False, 'message': 'An error occurred.'}), 500
+# --- END NEW ROUTE ---

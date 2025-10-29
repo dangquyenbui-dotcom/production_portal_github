@@ -233,7 +233,8 @@ def status():
         'facilities_count': 0,
         'lines_count': 0,
         'users_today': 0,
-        'active_sessions': 0
+        'active_sessions': 0, # <-- Will be replaced by count
+        'active_sessions_list': [] # <-- NEW: To hold the list of sessions
     }
 
     # Test connections
@@ -252,8 +253,12 @@ def status():
                     result = conn.execute_query("SELECT COUNT(*) as count FROM ProductionLines")
                     status_info['lines_count'] = result[0]['count'] if result else 0
 
-                # Get active sessions count
-                status_info['active_sessions'] = sessions_db.get_active_sessions_count()
+                # --- MODIFICATION ---
+                # Get active sessions LIST
+                active_sessions = sessions_db.get_all_active_sessions()
+                status_info['active_sessions_list'] = active_sessions if active_sessions else []
+                status_info['active_sessions'] = len(status_info['active_sessions_list']) # Get count from list
+                # --- END MODIFICATION ---
 
                 # Get users today (using UserLogins table)
                 if conn.check_table_exists('UserLogins'):

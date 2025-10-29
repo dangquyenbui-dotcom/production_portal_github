@@ -54,6 +54,19 @@ class SessionsDB:
             results = conn.execute_query(query, (username,))
             return results[0] if results else None
     
+    # --- NEW FUNCTION ---
+    def get_all_active_sessions(self):
+        """Get a list of all active sessions"""
+        with self.db.get_connection() as conn:
+            query = """
+                SELECT session_id, username, login_date, last_activity, ip_address
+                FROM ActiveSessions
+                WHERE is_active = 1
+                ORDER BY last_activity DESC
+            """
+            return conn.execute_query(query)
+    # --- END NEW FUNCTION ---
+    
     def invalidate_user_sessions(self, username):
         """Invalidate all sessions for a user"""
         with self.db.get_connection() as conn:

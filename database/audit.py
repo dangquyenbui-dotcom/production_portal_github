@@ -65,6 +65,11 @@ class AuditDB:
         if not self.audit_enabled:
             return True
         
+        # --- START MODIFICATION ---
+        # Coalesce None to 0 to satisfy potential NOT NULL constraints
+        record_id_to_log = record_id if record_id is not None else 0
+        # --- END MODIFICATION ---
+        
         with self.db.get_connection() as conn:
             # Ensure table exists
             self.ensure_table()
@@ -85,7 +90,7 @@ class AuditDB:
                         """
                         
                         conn.execute_query(query, (
-                            table_name, record_id, action_type, field_name,
+                            table_name, record_id_to_log, action_type, field_name, # <-- Use modified variable
                             old_value, new_value, username or 'system',
                             ip, user_agent, notes
                         ))
@@ -99,11 +104,13 @@ class AuditDB:
                     """
                     
                     conn.execute_query(query, (
-                        table_name, record_id, action_type, 
+                        table_name, record_id_to_log, action_type, # <-- Use modified variable
                         username or 'system', ip, user_agent, notes
                     ))
                 
-                print(f"✅ Audit logged: {action_type} on {table_name} ID {record_id} by {username}")
+                # --- MODIFIED: Log the correct record_id ---
+                print(f"✅ Audit logged: {action_type} on {table_name} ID {record_id_to_log} by {username}")
+                # --- END MODIFIED ---
                 return True
                 
             except Exception as e:
