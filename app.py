@@ -1,6 +1,9 @@
 # app.py - ADDED more detailed startup logging
 
 import logging
+# --- ADDED: Import for file logging ---
+from logging.handlers import RotatingFileHandler
+# --- END ADDED ---
 from flask import Flask, session
 import os
 from datetime import timedelta
@@ -32,9 +35,51 @@ def create_app():
     app.static_folder = 'static'
     app.static_url_path = '/static'
 
-    # Basic Logging Configuration
-    logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s')
+    # --- MODIFIED: Robust Logging Configuration ---
+    # Remove the basicConfig, we will configure handlers directly
+    # logging.basicConfig(level=logging.INFO, ...) 
+
+    log_level = logging.DEBUG # Set to DEBUG as requested
+    
+    # Create logs directory if it doesn't exist
+    if not os.path.exists('logs'):
+        os.mkdir('logs')
+
+    # File Handler (logs to portal.log)
+    # Rotates at 5MB, keeps 10 backup logs.
+    file_handler = RotatingFileHandler(
+        'logs/portal.log', 
+        maxBytes=5242880, 
+        backupCount=10,
+        encoding='utf-8' # --- ADDED: Specify encoding ---
+    )
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+    ))
+    file_handler.setLevel(log_level)
+
+    # Console Handler (so you still see logs in the .bat window)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s %(name)s %(threadName)s : %(message)s'
+    ))
+    console_handler.setLevel(log_level)
+
+    # Get the root logger
+    app.logger.handlers = [] # Clear default handlers
+    root_logger = logging.getLogger()
+    root_logger.handlers = [] # Clear any existing root handlers
+    
+    # Add our new handlers
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    root_logger.setLevel(log_level)
+    
+    # Also set Flask's logger level
+    app.logger.setLevel(log_level)
+    
+    app.logger.info('--- Application Starting Up ---')
+    # --- END MODIFIED ---
 
     # Initialize internationalization
     I18nConfig.init_app(app)
@@ -168,9 +213,12 @@ def test_services():
 # **** END MODIFIED test_services ****
 
 if __name__ == '__main__':
-    # Setup logging first thing
+    # --- MODIFIED: Setup logging for startup process itself ---
+    # This configures logging *before* the app is created,
+    # capturing startup messages.
     logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s %(levelname)s %(name)s : %(message)s') # Simplified format for startup
+                        format='%(asctime)s %(levelname)s %(name)s : %(message)s')
+    # --- END MODIFIED ---
 
     os.makedirs('static', exist_ok=True)
     os.makedirs('templates', exist_ok=True)

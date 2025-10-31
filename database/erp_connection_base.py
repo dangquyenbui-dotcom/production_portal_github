@@ -7,6 +7,7 @@ ADDED: MARS_Connection=yes to connection string to prevent "busy with results" e
 import pyodbc
 import traceback
 from config import Config
+import logging # <-- ADDED
 
 class ERPConnection:
     """Handles the raw connection to the ERP database."""
@@ -41,18 +42,18 @@ class ERPConnection:
                     f"Connection Timeout={Config.ERP_DB_TIMEOUT};"
                 )
                 self.connection = pyodbc.connect(connection_string, autocommit=True)
-                print(f"✅ [ERP_DB] Connection successful using driver: {driver} (MARS Enabled)")
+                logging.info(f"✅ [ERP_DB] Connection successful using driver: {driver} (MARS Enabled)") # <-- MODIFIED
                 self._connection_string = connection_string  # Save the working string
                 break  # Exit loop on successful connection
             except pyodbc.Error as e:
                 # Only print error if it's not a driver-related issue that we expect to retry
                 if 'driver' not in str(e).lower():
-                    print(f"❌ [ERP_DB] Connection Error: {e}")
-                print(f"ℹ️  [ERP_DB] Driver '{driver}' failed. Trying next...")
+                    logging.error(f"❌ [ERP_DB] Connection Error: {e}") # <-- MODIFIED
+                logging.info(f"ℹ️  [ERP_DB] Driver '{driver}' failed. Trying next...") # <-- MODIFIED
                 continue # Try the next driver in the list
 
         if not self.connection:
-            print(f"❌ [ERP_DB] FATAL: Connection failed. All attempted drivers were unsuccessful.")
+            logging.critical(f"❌ [ERP_DB] FATAL: Connection failed. All attempted drivers were unsuccessful.") # <-- MODIFIED
             # Optionally, raise an exception here if a connection is critical
             # raise ConnectionError("Could not establish connection to ERP database.")
 
@@ -60,12 +61,12 @@ class ERPConnection:
     def execute_query(self, sql, params=None):
         """Executes a SQL query and returns results as a list of dicts."""
         if not self.connection:
-            print("❌ [ERP_DB] Cannot execute query, no active connection.")
+            logging.error("❌ [ERP_DB] Cannot execute query, no active connection.") # <-- MODIFIED
             # Attempt to reconnect *once* if connection is None
-            print("ℹ️ [ERP_DB] Attempting to reconnect...")
+            logging.info("ℹ️ [ERP_DB] Attempting to reconnect...") # <-- MODIFIED
             self.__init__() # Re-run the connection logic
             if not self.connection:
-                 print("❌ [ERP_DB] Reconnect failed. Aborting query.")
+                 logging.error("❌ [ERP_DB] Reconnect failed. Aborting query.") # <-- MODIFIED
                  return []
 
 
@@ -81,23 +82,23 @@ class ERPConnection:
                 try:
                     results = [dict(zip(columns, row)) for row in cursor.fetchall()]
                 except pyodbc.Error as fetch_error:
-                    print(f"❌ [ERP_DB] Error fetching results: {fetch_error}")
+                    logging.error(f"❌ [ERP_DB] Error fetching results: {fetch_error}") # <-- MODIFIED
                     results = [] # Return empty list if fetch fails
                 return results
             # Handle cases like INSERT/UPDATE/DELETE where description might be None
             # If autocommit=True, changes are already committed.
             return [] # Return empty list for non-SELECT or empty results
         except pyodbc.Error as e:
-            print(f"❌ [ERP_DB] Query Failed: {e}")
-            print(f"   SQL: {sql}")
-            print(f"   Params: {params}")
+            logging.error(f"❌ [ERP_DB] Query Failed: {e}") # <-- MODIFIED
+            logging.error(f"   SQL: {sql}") # <-- MODIFIED
+            logging.error(f"   Params: {params}") # <-- MODIFIED
             traceback.print_exc()
             # Attempt to reconnect might be added here, but be careful of loops.
             # Close potentially problematic connection
             self.close()
             return []
         except Exception as e:
-            print(f"❌ [ERP_DB] Unexpected error during query execution: {e}")
+            logging.error(f"❌ [ERP_DB] Unexpected error during query execution: {e}") # <-- MODIFIED
             traceback.print_exc()
              # Close potentially problematic connection
             self.close()
@@ -107,7 +108,7 @@ class ERPConnection:
                  try:
                      cursor.close()
                  except pyodbc.Error as cursor_close_error:
-                     print(f"⚠️ [ERP_DB] Error closing cursor: {cursor_close_error}")
+                     logging.warning(f"⚠️ [ERP_DB] Error closing cursor: {cursor_close_error}") # <-- MODIFIED
 
 
     def close(self):
@@ -116,9 +117,9 @@ class ERPConnection:
             try:
                 self.connection.close()
                 self.connection = None
-                print("ℹ️ [ERP_DB] Connection closed.")
+                logging.info("ℹ️ [ERP_DB] Connection closed.") # <-- MODIFIED
             except pyodbc.Error as e:
-                print(f"⚠️ [ERP_DB] Error closing connection: {e}")
+                logging.warning(f"⚠️ [ERP_DB] Error closing connection: {e}") # <-- MODIFIED
 
 
 # Singleton instance for the connection (optional, consider lifetime management)
@@ -141,16 +142,16 @@ def get_erp_db_connection():
             cursor.close()
             connection_valid = True
         except pyodbc.Error:
-             print("ℹ️ [ERP_DB] Existing connection test failed. Recreating instance.")
+             logging.info("ℹ️ [ERP_DB] Existing connection test failed. Recreating instance.") # <-- MODIFIED
              _erp_connection_instance.close() # Close the potentially dead connection
              _erp_connection_instance = None # Force recreation
 
     if not connection_valid:
-        print("ℹ️ [ERP_DB] Creating/Recreating ERPConnection instance.")
+        logging.info("ℹ️ [ERP_DB] Creating/Recreating ERPConnection instance.") # <-- MODIFIED
         _erp_connection_instance = ERPConnection()
         if _erp_connection_instance.connection is None:
              # Handle the case where the connection failed during initialization
-             print("❌ [ERP_DB] Failed to create a valid ERPConnection.")
+             logging.error("❌ [ERP_DB] Failed to create a valid ERPConnection.") # <-- MODIFIED
              return None # Or raise an exception
 
     return _erp_connection_instance

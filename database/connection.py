@@ -7,6 +7,7 @@ FIXED: Better connection persistence and case-insensitive column names
 import pyodbc
 from config import Config
 from contextlib import contextmanager
+import logging # <-- ADDED
 
 class DatabaseConnection:
     """Database connection handler"""
@@ -65,11 +66,11 @@ class DatabaseConnection:
                     self._connection_string = alt_connection_string
                     return True
                 except Exception as e2:
-                    print(f"Database connection failed with alternate driver: {str(e2)}")
+                    logging.error(f"Database connection failed with alternate driver: {str(e2)}") # <-- MODIFIED
                     self.connection = None
                     self.cursor = None
                     return False
-            print(f"Database connection failed: {str(e)}")
+            logging.error(f"Database connection failed: {str(e)}") # <-- MODIFIED
             self.connection = None
             self.cursor = None
             return False
@@ -85,7 +86,7 @@ class DatabaseConnection:
                 self.connection = None
             return True
         except Exception as e:
-            print(f"Error disconnecting: {str(e)}")
+            logging.warning(f"Error disconnecting: {str(e)}") # <-- MODIFIED
             return False
     
     def test_connection(self):
@@ -109,7 +110,7 @@ class DatabaseConnection:
         # Ensure we have a connection
         if not self.cursor or not self.connection:
             if not self.connect():
-                print("Failed to establish database connection")
+                logging.error("Failed to establish database connection") # <-- MODIFIED
                 if query.strip().upper().startswith('SELECT'):
                     return []
                 return False
@@ -121,7 +122,7 @@ class DatabaseConnection:
         except:
             # Connection died, reconnect
             if not self.connect():
-                print("Failed to reconnect to database")
+                logging.error("Failed to reconnect to database") # <-- MODIFIED
                 if query.strip().upper().startswith('SELECT'):
                     return []
                 return False
@@ -149,9 +150,9 @@ class DatabaseConnection:
                 return True
                 
         except pyodbc.Error as e:
-            print(f"Query execution failed: {str(e)}")
-            print(f"Query: {query}")
-            print(f"Params: {params}")
+            logging.error(f"Query execution failed: {str(e)}") # <-- MODIFIED
+            logging.error(f"Query: {query}") # <-- MODIFIED
+            logging.error(f"Params: {params}") # <-- MODIFIED
             if self.connection:
                 try:
                     self.connection.rollback()
@@ -162,7 +163,7 @@ class DatabaseConnection:
                 return []
             return False
         except Exception as e:
-            print(f"Unexpected error in execute_query: {str(e)}")
+            logging.error(f"Unexpected error in execute_query: {str(e)}") # <-- MODIFIED
             if query.strip().upper().startswith('SELECT'):
                 return []
             return False
@@ -172,7 +173,7 @@ class DatabaseConnection:
         # Ensure we have a connection
         if not self.cursor or not self.connection:
             if not self.connect():
-                print("Failed to establish database connection")
+                logging.error("Failed to establish database connection") # <-- MODIFIED
                 return None
         
         try:
@@ -194,7 +195,7 @@ class DatabaseConnection:
             return result[0] if result else None
             
         except Exception as e:
-            print(f"Scalar query failed: {str(e)}")
+            logging.warning(f"Scalar query failed: {str(e)}") # <-- MODIFIED
             return None
     
     def check_table_exists(self, table_name):
@@ -208,7 +209,7 @@ class DatabaseConnection:
             result = self.execute_scalar(query, (table_name, Config.DB_NAME))
             return result > 0 if result is not None else False
         except Exception as e:
-            print(f"Table check failed: {str(e)}")
+            logging.warning(f"Table check failed: {str(e)}") # <-- MODIFIED
             return False
     
     @contextmanager
@@ -229,7 +230,7 @@ class DatabaseConnection:
             
             yield self
         except Exception as e:
-            print(f"Error in connection context manager: {str(e)}")
+            logging.error(f"Error in connection context manager: {str(e)}") # <-- MODIFIED
             yield self
         # Don't disconnect when leaving context to maintain persistence
 
