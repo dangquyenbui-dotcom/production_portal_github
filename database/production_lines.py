@@ -1,6 +1,7 @@
 """
 Production lines database operations
 Handles all production line-related database interactions
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -10,11 +11,11 @@ class ProductionLinesDB:
     """Production lines database operations"""
     
     def __init__(self):
-        self.db = get_db()
+        pass # Do not cache get_db() here
     
     def get_all(self, facility_id=None, active_only=True):
         """Get all production lines, optionally filtered by facility"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check which columns exist
             columns_query = """
                 SELECT COLUMN_NAME 
@@ -81,7 +82,7 @@ class ProductionLinesDB:
     
     def get_by_id(self, line_id):
         """Get production line by ID"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT pl.*, f.facility_name
                 FROM ProductionLines pl
@@ -93,7 +94,7 @@ class ProductionLinesDB:
     
     def create(self, facility_id, line_name, line_code, username):
         """Create new production line"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check if line name already exists in this facility
             check_query = """
                 SELECT line_id FROM ProductionLines 
@@ -161,7 +162,7 @@ class ProductionLinesDB:
     
     def update(self, line_id, line_name, line_code, username):
         """Update existing production line"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current record for comparison
             current = self.get_by_id(line_id)
             if not current:
@@ -245,7 +246,7 @@ class ProductionLinesDB:
     
     def deactivate(self, line_id, username):
         """Deactivate production line (soft delete)"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current line details
             current = self.get_by_id(line_id)
             if not current:
@@ -304,7 +305,7 @@ class ProductionLinesDB:
     
     def reactivate(self, line_id, username):
         """Reactivate a deactivated production line"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check which columns exist
             columns_query = """
                 SELECT COLUMN_NAME 

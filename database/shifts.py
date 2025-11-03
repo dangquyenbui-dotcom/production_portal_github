@@ -1,6 +1,7 @@
 """
 Shifts database operations
 Manages work shift definitions and schedules
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -10,11 +11,11 @@ class ShiftsDB:
     """Shifts database operations"""
     
     def __init__(self):
-        self.db = get_db()
+        pass # Do not cache get_db() here
     
     def ensure_table(self):
         """Ensure the Shifts table exists"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             if not conn.check_table_exists('Shifts'):
                 print("Creating Shifts table...")
                 create_query = """
@@ -53,7 +54,7 @@ class ShiftsDB:
             ('Night Shift', 'NS', '22:00:00', '06:00:00', 'Standard night shift (overnight)'),
         ]
         
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             for name, code, start, end, desc in default_shifts:
                 # Calculate if overnight
                 is_overnight = 1 if end < start else 0
@@ -79,7 +80,7 @@ class ShiftsDB:
     
     def get_all(self, active_only=True):
         """Get all shifts"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_table()
             
@@ -109,7 +110,7 @@ class ShiftsDB:
     
     def get_by_id(self, shift_id):
         """Get shift by ID"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT shift_id, shift_name, shift_code,
                        CONVERT(VARCHAR(5), start_time, 108) as start_time,
@@ -123,7 +124,7 @@ class ShiftsDB:
     
     def create(self, shift_name, shift_code, start_time, end_time, description, username):
         """Create new shift"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_table()
             
@@ -190,7 +191,7 @@ class ShiftsDB:
     
     def update(self, shift_id, shift_name, shift_code, start_time, end_time, description, username):
         """Update existing shift"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current record
             current = self.get_by_id(shift_id)
             if not current:
@@ -284,7 +285,7 @@ class ShiftsDB:
     
     def deactivate(self, shift_id, username):
         """Deactivate shift (soft delete)"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current shift
             current = self.get_by_id(shift_id)
             if not current:
@@ -325,7 +326,7 @@ class ShiftsDB:
     
     def reactivate(self, shift_id, username):
         """Reactivate a deactivated shift"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current shift
             current = self.get_by_id(shift_id)
             if not current:

@@ -221,6 +221,41 @@
     [data-theme="dark"] .action-card.logout {
         border-color: var(--accent-red);
     }
+    
+    /* --- NEW: Style for loading state on heavy links --- */
+    .action-card.is-loading {
+        opacity: 0.7;
+        cursor: wait;
+        transform: translateY(0);
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .action-card.is-loading .action-icon {
+        animation: spin 1s linear infinite;
+    }
+    
+    /* Swap content on load */
+    .action-card.is-loading .action-title,
+    .action-card.is-loading .action-desc {
+        display: none;
+    }
+    
+    .action-card .loading-text {
+        display: none;
+    }
+    
+    .action-card.is-loading .loading-text {
+        display: block;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    /* --- END NEW --- */
 
     .test-mode-banner {
         background: #fef5e7;
@@ -373,89 +408,136 @@
 <div class="actions-grid">
     {# Admin Panel: DT_Admin, Sched_Admin, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) %}
-    <a href="/admin" class="action-card admin">
+    <a href="/admin" class="action-card admin is-heavy-link">
         <div class="action-icon">⚙️</div>
         <div class="action-title">Admin Panel</div>
         <div class="action-desc">Manage facilities, lines, and settings</div>
+        <div class="loading-text">Loading...</div>
     </a>
     {% endif %}
 
     {# Scheduling: Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_scheduling_admin(session) or require_scheduling_user(session) %}
-    <a href="{{ url_for('scheduling.index') }}" class="action-card admin">
+    <a href="{{ url_for('scheduling.index') }}" class="action-card admin is-heavy-link">
         <div class="action-icon">🗓️</div>
         <div class="action-title">Scheduling</div>
         <div class="action-desc">Manage production projections for open orders.</div>
+        <div class="loading-text">Loading...</div>
     </a>
     {% endif %}
 
     {# BOM Viewer: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
-    <a href="{{ url_for('bom.view_boms') }}" class="action-card">
+    <a href="{{ url_for('bom.view_boms') }}" class="action-card is-heavy-link">
         <div class="action-icon">📜</div>
         <div class="action-title">BOM Viewer</div>
         <div class="action-desc">Browse Bill of Materials data from the ERP.</div>
+        <div class="loading-text">Loading...</div>
     </a>
     {% endif %}
 
     {# PO Viewer: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
-    <a href="{{ url_for('po.view_pos') }}" class="action-card">
+    <a href="{{ url_for('po.view_pos') }}" class="action-card is-heavy-link">
         <div class="action-icon">📦</div>
         <div class="action-title">PO Viewer</div>
         <div class="action-desc">Browse open Purchase Orders from the ERP.</div>
+        <div class="loading-text">Loading...</div>
     </a>
     {% endif %}
 
     {# MRP Suggestions: Sched_Admin, Portal_Admin #}
     {% if require_scheduling_admin(session) %} {# This helper includes Portal_Admin & LocalAdmin #}
-    <a href="{{ url_for('mrp.view_mrp') }}" class="action-card admin">
+    <a href="{{ url_for('mrp.view_mrp') }}" class="action-card admin is-heavy-link">
         <div class="action-icon">🧠</div>
         <div class="action-title">MRP Suggestions</div>
         <div class="action-desc">View production suggestions based on material availability.</div>
+        <div class="loading-text">Loading...</div>
     </a>
     {% endif %}
 
      {# Customer Analysis: Sched_Admin, Portal_Admin #}
     {% if require_scheduling_admin(session) %} {# This helper includes Portal_Admin & LocalAdmin #}
-     <a href="{{ url_for('sales.customer_analysis') }}" class="action-card">
+     <a href="{{ url_for('sales.customer_analysis') }}" class="action-card is-heavy-link">
         <div class="action-icon">🧑‍💼</div>
         <div class="action-title">Customer Analysis</div>
         <div class="action-desc">Review customer performance and sales data.</div>
+        <div class="loading-text">Loading...</div>
     </a>
     {% endif %}
 
     {# Report Downtime: DT_Admin, DT_User, Portal_Admin #}
     {% if require_admin(session) or require_user(session) %}
-    <a href="/downtime" class="action-card">
+    <a href="/downtime" class="action-card is-heavy-link">
         <div class="action-icon">📝</div>
         <div class="action-title">Report Downtime</div>
         <div class="action-desc">Record production downtime events</div>
+        <div class="loading-text">Loading...</div>
     </a>
     {% endif %}
 
     {# View Reports: DT_Admin, Sched_Admin, Sched_User, Portal_Admin #}
     {% if require_admin(session) or require_scheduling_admin(session) or require_scheduling_user(session) %}
-    {# ***** THIS IS THE LINE TO FIX ***** #}
-    <a href="{{ url_for('reports.reports_hub.hub') }}" class="action-card">
-    {# ***** END FIX ***** #}
+    <a href="{{ url_for('reports.reports_hub.hub') }}" class="action-card is-heavy-link">
         <div class="action-icon">📊</div>
         <div class="action-title">View Reports</div>
         <div class="action-desc">View downtime reports and analytics</div>
+        <div class="loading-text">Loading...</div>
     </a>
     {% endif %}
 
     {# Logout: Always available for logged-in users #}
-    <a href="/logout" class="action-card logout">
+    <a href="/logout" class="action-card logout is-heavy-link">
         <div class="action-icon">🚪</div>
         <div class="action-title">Logout</div>
         <div class="action-desc">Sign out of your account</div>
+        <div class="loading-text">Loading...</div>
     </a>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // No page-specific JavaScript needed for dashboard
+document.addEventListener('DOMContentLoaded', function() {
+    // This is a global lock to prevent multiple navigations
+    let isNavigating = false;
+
+    // Select ALL action cards
+    document.querySelectorAll('.action-card').forEach(link => {
+        // Ignore disabled cards
+        if (link.classList.contains('disabled')) {
+            return;
+        }
+
+        link.addEventListener('click', function(e) {
+            // 1. ALWAYS prevent the default link behavior immediately.
+            e.preventDefault();
+
+            // 2. Check if we are already trying to navigate.
+            if (isNavigating) {
+                console.log('Navigation already in progress, click blocked.');
+                return;
+            }
+            
+            // 3. Set the global lock and update the UI.
+            isNavigating = true;
+            link.classList.add('is-loading');
+
+            // 4. Manually trigger the navigation.
+            // We use a small timeout to allow the UI to update first.
+            setTimeout(() => {
+                window.location.href = link.href;
+            }, 50); // 50ms is enough for the browser to render the "loading" state.
+
+            // 5. Re-enable the link if the user navigates back (bfcache)
+            window.addEventListener('pageshow', function(event) {
+                if (event.persisted) {
+                    isNavigating = false;
+                    link.classList.remove('is-loading');
+                }
+            });
+        });
+    });
+});
 </script>
 {% endblock %}

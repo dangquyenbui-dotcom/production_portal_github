@@ -450,7 +450,9 @@
                 {# Headers with data-column-id and data-type #}
                 <th class="sortable" data-column-id="Facility" data-type="string">Facility<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="BU" data-type="string">BU<span class="sort-indicator"></span></th>
+                
                 <th class="sortable" data-column-id="SO" data-type="numeric">SO<span class="sort-indicator"></span></th>
+                <th class="sortable" data-column-id="SO Type" data-type="string">SO Type<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="Part" data-type="string">Part<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="Customer Name" data-type="string">Customer Name<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="Description" data-type="string">Part Description<span class="sort-indicator"></span></th>
@@ -476,8 +478,6 @@
                 <th class="sortable" data-column-id="Requested Date" data-type="date">Requested Date<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="Comp Arrived Date" data-type="date">Comp Arrived Date<span class="sort-indicator"></span></th>
                 <th class="sortable" data-column-id="Ordered Date" data-type="date">Ordered Date<span class="sort-indicator"></span></th>
-                {# Hidden column for SO Type filtering #}
-                <th data-column-id="SO Type" style="display:none;">SO Type</th>
             </tr>
         </thead>
         <tbody id="schedule-body">
@@ -485,7 +485,9 @@
             <tr data-so-number="{{ row['SO'] }}" data-part-number="{{ row['Part'] }}">
                 <td data-field="Facility">{{ row['Facility'] }}</td>
                 <td data-field="BU">{{ row['BU'] }}</td>
+                
                 <td data-field="SO">{{ row['SO'] }}</td>
+                <td data-field="SO Type">{{ row['SO Type'] }}</td>
                 <td data-field="Part">{{ row['Part'] }}</td>
                 <td data-field="Customer Name">{{ row['Customer Name'] }}</td>
                 <td data-field="Description">{{ row['Description'] }}</td>
@@ -517,8 +519,6 @@
                 <td data-field="Requested Date">{{ row['Requested Date'] or '' }}</td>
                 <td data-field="Comp Arrived Date">{{ row['Comp Arrived Date'] or '' }}</td>
                 <td data-field="Ordered Date">{{ row['Ordered Date'] or '' }}</td>
-                {# Hidden cell for SO Type filtering #}
-                <td data-field="SO Type" style="display:none;">{{ row['SO Type'] }}</td>
             </tr>
             {% else %}
             <tr>

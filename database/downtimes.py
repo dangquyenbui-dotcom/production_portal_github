@@ -1,8 +1,8 @@
 # database/downtimes.py - Complete file with ERP job support
-
 """
 Downtimes database operations - WITH ERP JOB INTEGRATION
 Enhanced for production downtime tracking with job selection
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -12,12 +12,12 @@ class DowntimesDB:
     """Downtime entries database operations"""
     
     def __init__(self):
-        self.db = get_db()
+        # self.db = get_db() # <-- REMOVED
         self.ensure_table_updated()
     
     def ensure_table_updated(self):
         """Ensure the Downtimes table has all required columns"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check if crew_size column exists, add if not
             check_column = """
                 SELECT COUNT(*) 
@@ -38,7 +38,7 @@ class DowntimesDB:
     
     def get_by_id(self, downtime_id):
         """Get downtime entry by ID"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT d.*, 
                        pl.line_name,
@@ -79,7 +79,7 @@ class DowntimesDB:
         Returns:
             tuple: (success, message, downtime_id)
         """
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Validate required fields
             required = ['line_id', 'category_id', 'start_time', 'end_time', 'entered_by', 'crew_size']
             for field in required:
@@ -211,7 +211,7 @@ class DowntimesDB:
         Returns:
             tuple: (success, message)
         """
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current record
             current = self.get_by_id(downtime_id)
             if not current:
@@ -325,7 +325,7 @@ class DowntimesDB:
     
     def delete(self, downtime_id, username):
         """Soft delete a downtime entry"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check ownership
             current = self.get_by_id(downtime_id)
             if not current:
@@ -351,7 +351,7 @@ class DowntimesDB:
     
     def _detect_shift(self, timestamp):
         """Auto-detect shift based on timestamp"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get all active shifts
             query = """
                 SELECT shift_id, start_time, end_time, is_overnight
@@ -384,7 +384,7 @@ class DowntimesDB:
     
     def get_recent(self, days=7, facility_id=None, line_id=None, limit=100):
         """Get recent downtime entries"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             base_query = f"""
                 SELECT TOP {limit}
                     d.downtime_id,
@@ -429,7 +429,7 @@ class DowntimesDB:
     
     def get_user_entries_for_line_today(self, username, line_id):
         """Get user's entries for a specific line today"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT 
                     d.downtime_id,
@@ -463,7 +463,7 @@ class DowntimesDB:
     
     def get_all_entries_for_line_today(self, line_id):
         """Get ALL entries for a specific line today (from all users)"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT 
                     d.downtime_id,

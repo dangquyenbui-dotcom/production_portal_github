@@ -1,6 +1,7 @@
 # database/scheduling.py
 """
 Database operations for the Production Scheduling module.
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -11,13 +12,13 @@ class SchedulingDB:
     """Handles data for the scheduling grid."""
 
     def __init__(self):
-        self.db = get_db()
+        # self.db = get_db() # <-- REMOVED
         self.erp_service = get_erp_service()
         self.ensure_table()
 
     def ensure_table(self):
         """Ensures the ScheduleProjections table exists in the local database."""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             if not conn.check_table_exists('ScheduleProjections'):
                 print("Creating ScheduleProjections table...")
                 create_query = """
@@ -49,7 +50,7 @@ class SchedulingDB:
         on_hand_map = {item['PartNumber']: item['TotalOnHand'] for item in on_hand_data}
 
         # Step 3: Get the user-saved projections from the local database
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             local_projections_query = "SELECT so_number, part_number, can_make_no_risk, high_risk FROM ScheduleProjections"
             local_data = conn.execute_query(local_projections_query)
         
@@ -116,7 +117,7 @@ class SchedulingDB:
         if not column_to_update:
             return False, "Invalid risk type specified."
 
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             sql = f"""
                 MERGE ScheduleProjections AS target
                 USING (SELECT ? AS so_number, ? AS part_number) AS source

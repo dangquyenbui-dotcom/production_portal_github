@@ -1,5 +1,6 @@
 """
 Database operations for generating analytical reports.
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -10,13 +11,13 @@ class ReportsDB:
     """Reporting database operations"""
 
     def __init__(self):
-        self.db = get_db()
+        pass # Do not cache get_db() here
 
     def get_downtime_summary(self, start_date, end_date, facility_id=None, line_id=None):
         """
         Generates aggregated data for the downtime summary report.
         """
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             
             # Base query and params
             base_sql = """

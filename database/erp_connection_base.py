@@ -3,11 +3,13 @@
 Dedicated ERP Database Connection Base.
 Handles the raw pyodbc connection logic.
 ADDED: MARS_Connection=yes to connection string to prevent "busy with results" error.
+MODIFIED: Made ERP connection thread-local.
 """
 import pyodbc
 import traceback
 from config import Config
-import logging # <-- ADDED
+import logging
+import threading # <-- IMPORTED THIS
 
 class ERPConnection:
     """Handles the raw connection to the ERP database."""
@@ -122,36 +124,46 @@ class ERPConnection:
                 logging.warning(f"⚠️ [ERP_DB] Error closing connection: {e}") # <-- MODIFIED
 
 
-# Singleton instance for the connection (optional, consider lifetime management)
-_erp_connection_instance = None
+# Singleton instance for the connection
+# _erp_connection_instance = None # <-- REMOVED THIS
+
+# --- MODIFICATION: Use thread-local storage ---
+_erp_storage = threading.local()
+# --- END MODIFICATION ---
 
 def get_erp_db_connection():
     """
-    Gets a shared instance of the ERP connection.
-    Creates a new one if it doesn't exist or seems closed.
+    Gets a shared (per-thread) instance of the ERP connection.
+    Creates a new one if it doesn't exist for this thread or seems closed.
     """
-    global _erp_connection_instance
-    # Check if instance exists and if the connection seems valid
+    # global _erp_connection_instance # <-- REMOVED THIS
+    
+    # --- MODIFICATION: Use thread-local logic ---
+    instance = getattr(_erp_storage, 'instance', None)
     connection_valid = False
-    if _erp_connection_instance and _erp_connection_instance.connection:
+
+    if instance and instance.connection:
         try:
             # More reliable check: attempt a simple query
-            cursor = _erp_connection_instance.connection.cursor()
+            cursor = instance.connection.cursor()
             cursor.execute("SELECT 1")
             cursor.fetchone()
             cursor.close()
             connection_valid = True
         except pyodbc.Error:
-             logging.info("ℹ️ [ERP_DB] Existing connection test failed. Recreating instance.") # <-- MODIFIED
-             _erp_connection_instance.close() # Close the potentially dead connection
-             _erp_connection_instance = None # Force recreation
+             logging.info("ℹ️ [ERP_DB] Existing thread-local connection test failed. Recreating instance.")
+             instance.close() # Close the potentially dead connection
+             instance = None # Force recreation
 
     if not connection_valid:
-        logging.info("ℹ️ [ERP_DB] Creating/Recreating ERPConnection instance.") # <-- MODIFIED
-        _erp_connection_instance = ERPConnection()
-        if _erp_connection_instance.connection is None:
+        logging.info("ℹ️ [ERP_DB] Creating/Recreating ERPConnection instance for this thread.")
+        instance = ERPConnection()
+        if instance.connection is None:
              # Handle the case where the connection failed during initialization
-             logging.error("❌ [ERP_DB] Failed to create a valid ERPConnection.") # <-- MODIFIED
+             logging.error("❌ [ERP_DB] Failed to create a valid ERPConnection.")
+             _erp_storage.instance = None # Don't store a bad instance
              return None # Or raise an exception
+        _erp_storage.instance = instance # Store the new valid instance
 
-    return _erp_connection_instance
+    return instance
+    # --- END MODIFICATION ---

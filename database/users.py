@@ -2,6 +2,7 @@
 Users database operations
 Tracks user logins and activity
 INCLUDES USER PREFERENCES FOR LANGUAGE SELECTION
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -11,11 +12,11 @@ class UsersDB:
     """Users database operations"""
     
     def __init__(self):
-        self.db = get_db()
+        pass # Do not cache get_db() here
     
     def ensure_table(self):
         """Ensure the UserLogins table exists"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             if not conn.check_table_exists('UserLogins'):
                 print("Creating UserLogins table...")
                 create_query = """
@@ -42,7 +43,7 @@ class UsersDB:
     
     def ensure_preferences_table(self):
         """Ensure the UserPreferences table exists"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             if not conn.check_table_exists('UserPreferences'):
                 print("Creating UserPreferences table...")
                 create_query = """
@@ -66,7 +67,7 @@ class UsersDB:
 
     def log_login(self, username, display_name, email, groups, is_admin, ip=None, user_agent=None):
         """Log a user login event"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_table()
             
@@ -86,7 +87,7 @@ class UsersDB:
 
     def get_user_preference(self, username, preference_key):
         """Get a specific preference for a user"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_preferences_table()
             
@@ -100,7 +101,7 @@ class UsersDB:
 
     def set_user_preference(self, username, preference_key, preference_value):
         """Set or update a user preference"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_preferences_table()
             
@@ -121,7 +122,7 @@ class UsersDB:
 
     def get_all_user_preferences(self, username):
         """Get all preferences for a user"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_preferences_table()
             
@@ -142,7 +143,7 @@ class UsersDB:
     
     def get_user_summary(self):
         """Get summary of all users who have logged in"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_table()
             
@@ -170,7 +171,7 @@ class UsersDB:
     
     def get_user_activity(self, username, days=30):
         """Get activity history for a specific user"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_table()
             
@@ -191,7 +192,7 @@ class UsersDB:
     
     def get_recent_logins(self, hours=24):
         """Get users who logged in recently"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_table()
             
@@ -212,7 +213,7 @@ class UsersDB:
     
     def get_login_statistics(self):
         """Get login statistics"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_table()
             
@@ -277,7 +278,7 @@ class UsersDB:
     
     def get_user_details(self, username):
         """Get detailed information about a specific user"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # User info from logins
             query = """
                 SELECT TOP 1
@@ -346,7 +347,7 @@ class UsersDB:
     
     def search_users(self, search_term):
         """Search for users by username, display name, or email"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Ensure table exists
             self.ensure_table()
             

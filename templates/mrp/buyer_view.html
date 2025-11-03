@@ -3,6 +3,11 @@
 {% block title %}Purchasing Shortage Report{% endblock %}
 {% block navbar_title %}🛒 Purchasing Shortage Report{% endblock %}
 
+{% block nav_links %}
+<a href="{{ url_for('reports.reports_hub.hub') }}">All Reports</a>
+<a href="/dashboard">Dashboard</a>
+<a href="/logout">Logout</a>
+{% endblock %}
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
 <style>

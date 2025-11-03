@@ -1,6 +1,7 @@
 """
 Facilities database operations - FULLY IMPLEMENTED
 With working update method for editing facilities
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -10,11 +11,11 @@ class FacilitiesDB:
     """Facilities database operations"""
     
     def __init__(self):
-        self.db = get_db()
+        pass # Do not cache get_db() here
     
     def get_all(self, active_only=True):
         """Get all facilities"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check if table exists
             if not conn.check_table_exists('Facilities'):
                 return []
@@ -81,7 +82,7 @@ class FacilitiesDB:
     
     def get_by_id(self, facility_id):
         """Get facility by ID"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = "SELECT * FROM Facilities WHERE facility_id = ?"
             results = conn.execute_query(query, (facility_id,))
             
@@ -101,7 +102,7 @@ class FacilitiesDB:
     
     def create(self, name, location, username):
         """Create new facility"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check if facility name already exists
             check_query = "SELECT facility_id FROM Facilities WHERE facility_name = ?"
             existing = conn.execute_query(check_query, (name,))
@@ -153,7 +154,7 @@ class FacilitiesDB:
     
     def update(self, facility_id, name, location, username):
         """Update existing facility"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current record for comparison
             current = self.get_by_id(facility_id)
             if not current:
@@ -222,7 +223,7 @@ class FacilitiesDB:
     
     def deactivate(self, facility_id, username):
         """Deactivate facility (soft delete)"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current facility details
             current = self.get_by_id(facility_id)
             if not current:
@@ -278,7 +279,7 @@ class FacilitiesDB:
     
     def reactivate(self, facility_id, username):
         """Reactivate a deactivated facility"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current facility details
             current = self.get_by_id(facility_id)
             if not current:

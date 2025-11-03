@@ -6,6 +6,55 @@
 
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+<style>
+    .action-card.is-loading {
+        opacity: 0.7;
+        cursor: wait;
+        transform: translateY(0);
+        box-shadow: var(--shadow-sm);
+    }
+    
+    .action-card.is-loading .admin-icon {
+        animation: spin 1s linear infinite;
+    }
+    
+    /* Swap content on load */
+    .action-card.is-loading .admin-title,
+    .action-card.is-loading .admin-desc {
+        display: none;
+    }
+    
+    .action-card .loading-text {
+        display: none;
+    }
+    
+    .action-card.is-loading .loading-text {
+        display: block;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    /* --- REPEATING STYLES FROM admin.css for .admin-card --- */
+    /* (This ensures the loading styles can override them) */
+    .admin-card .loading-text {
+        display: none;
+    }
+    
+    .admin-card.is-loading .loading-text {
+        display: block;
+    }
+    
+    .admin-card.is-loading .admin-title,
+    .admin-card.is-loading .admin-desc {
+        display: none;
+    }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -20,58 +69,68 @@
     <div class="admin-grid">
         {# Each card implicitly inherits the hub's access check #}
 
-        {# ***** CORRECTED url_for ***** #}
-        <a href="{{ url_for('reports.downtime_summary.downtime_summary') }}" class="admin-card">
+        {# ***** CORRECTED url_for & ADDED is-heavy-link ***** #}
+        <a href="{{ url_for('reports.downtime_summary.downtime_summary') }}" class="admin-card is-heavy-link">
             <div class="admin-icon">📊</div>
             <div class="admin-title">Downtime Summary</div>
             <div class="admin-desc">Analyze downtime duration by category and production line.</div>
+            <div class="loading-text">Loading...</div>
         </a>
 
-        {# ***** CORRECTED url_for ***** #}
-        <a href="{{ url_for('reports.shipment_forecast.shipment_forecast') }}" class="admin-card">
+        {# ***** CORRECTED url_for & ADDED is-heavy-link ***** #}
+        <a href="{{ url_for('reports.shipment_forecast.shipment_forecast') }}" class="admin-card is-heavy-link">
             <div class="admin-icon">🔮</div>
             <div class="admin-title">Shipment Forecast</div>
             <div class="admin-desc">Automated monthly shipment forecast based on MRP data.</div>
+            <div class="loading-text">Loading...</div>
         </a>
 
-        {# ***** CORRECTED url_for ***** #}
-        <a href="{{ url_for('reports.coc_report.coc_report') }}" class="admin-card">
+        {# ***** CORRECTED url_for & ADDED is-heavy-link ***** #}
+        <a href="{{ url_for('reports.coc_report.coc_report') }}" class="admin-card is-heavy-link">
             <div class="admin-icon">📜</div>
             <div class="admin-title">Certificate of Compliance</div>
             <div class="admin-desc">View component usage and yield for a specific job.</div>
+            <div class="loading-text">Loading...</div>
         </a>
 
-        {# These links go to different main blueprints, so their url_for should be correct #}
-        <a href="{{ url_for('jobs.view_open_jobs') }}" class="admin-card">
+        {# ***** ADDED is-heavy-link ***** #}
+        <a href="{{ url_for('jobs.view_open_jobs') }}" class="admin-card is-heavy-link">
             <div class="admin-icon">💼</div>
             <div class="admin-title">Open Jobs</div>
             <div class="admin-desc">View live open production jobs and component usage.</div>
+            <div class="loading-text">Loading...</div>
         </a>
 
         {% if require_scheduling_admin(session) %}
-        <a href="{{ url_for('mrp.customer_summary') }}" class="admin-card">
+        {# ***** ADDED is-heavy-link ***** #}
+        <a href="{{ url_for('mrp.customer_summary') }}" class="admin-card is-heavy-link">
             <div class="admin-icon">📈</div>
             <div class="admin-title">MRP Customer Summary</div>
             <div class="admin-desc">View order status and shortages by customer.</div>
+            <div class="loading-text">Loading...</div>
         </a>
         {% endif %}
 
-        <a href="{{ url_for('mrp.buyer_view') }}" class="admin-card">
+        {# ***** ADDED is-heavy-link ***** #}
+        <a href="{{ url_for('mrp.buyer_view') }}" class="admin-card is-heavy-link">
             <div class="admin-icon">🛒</div>
             <div class="admin-title">Purchasing Shortage Report</div>
             <div class="admin-desc">Consolidated view of all component shortfalls.</div>
+            <div class="loading-text">Loading...</div>
         </a>
 
         <a href="#" class="admin-card disabled">
             <div class="admin-icon">🏭</div>
             <div class="admin-title">Production Efficiency (Coming Soon)</div>
             <div class="admin-desc">Report on overall equipment effectiveness (OEE).</div>
+            <div class="loading-text">Loading...</div>
         </a>
 
         <a href="#" class="admin-card disabled">
             <div class="admin-icon">📦</div>
             <div class="admin-title">Downtime by ERP Job (Coming Soon)</div>
             <div class="admin-desc">Analyze downtime associated with specific jobs and parts.</div>
+            <div class="loading-text">Loading...</div>
         </a>
     </div>
 
@@ -85,4 +144,50 @@
          <a href="{{ url_for('main.dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
     </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // This is a global lock to prevent multiple navigations
+    let isNavigating = false;
+
+    // Select ALL admin cards on this page
+    document.querySelectorAll('.admin-card').forEach(link => {
+        // Ignore disabled cards
+        if (link.classList.contains('disabled')) {
+            return;
+        }
+
+        link.addEventListener('click', function(e) {
+            // 1. ALWAYS prevent the default link behavior immediately.
+            e.preventDefault();
+
+            // 2. Check if we are already trying to navigate.
+            if (isNavigating) {
+                console.log('Navigation already in progress, click blocked.');
+                return;
+            }
+            
+            // 3. Set the global lock and update the UI.
+            isNavigating = true;
+            link.classList.add('is-loading');
+
+            // 4. Manually trigger the navigation.
+            // We use a small timeout to allow the UI to update first.
+            setTimeout(() => {
+                window.location.href = link.href;
+            }, 50); // 50ms is enough for the browser to render the "loading" state.
+
+            // 5. Re-enable the link if the user navigates back (bfcache)
+            window.addEventListener('pageshow', function(event) {
+                if (event.persisted) {
+                    isNavigating = false;
+                    link.classList.remove('is-loading');
+                }
+            });
+        });
+    });
+});
+</script>
 {% endblock %}

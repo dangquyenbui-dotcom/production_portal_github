@@ -1,6 +1,7 @@
 """
 Active sessions management
 Enforces single session per user
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -11,12 +12,12 @@ class SessionsDB:
     """Active sessions database operations"""
     
     def __init__(self):
-        self.db = get_db()
+        # self.db = get_db() # <-- REMOVED
         self.ensure_table()
     
     def ensure_table(self):
         """Ensure the ActiveSessions table exists"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             if not conn.check_table_exists('ActiveSessions'):
                 print("Creating ActiveSessions table...")
                 create_query = """
@@ -45,7 +46,7 @@ class SessionsDB:
     
     def get_active_session(self, username):
         """Check if user has an active session"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT session_id, login_date, ip_address, last_activity
                 FROM ActiveSessions 
@@ -57,7 +58,7 @@ class SessionsDB:
     # --- NEW FUNCTION ---
     def get_all_active_sessions(self):
         """Get a list of all active sessions"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT session_id, username, login_date, last_activity, ip_address
                 FROM ActiveSessions
@@ -69,7 +70,7 @@ class SessionsDB:
     
     def invalidate_user_sessions(self, username):
         """Invalidate all sessions for a user"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 UPDATE ActiveSessions 
                 SET is_active = 0 
@@ -79,7 +80,7 @@ class SessionsDB:
     
     def create_session(self, session_id, username, ip=None, user_agent=None):
         """Create a new active session"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # First, invalidate any existing sessions
             self.invalidate_user_sessions(username)
             
@@ -93,7 +94,7 @@ class SessionsDB:
     
     def validate_session(self, session_id, username):
         """Validate if a session is still active"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT session_id, last_activity
                 FROM ActiveSessions 
@@ -114,7 +115,7 @@ class SessionsDB:
     
     def end_session(self, session_id):
         """End a session (logout)"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 UPDATE ActiveSessions 
                 SET is_active = 0 
@@ -124,7 +125,7 @@ class SessionsDB:
     
     def cleanup_old_sessions(self, hours=24):
         """Clean up sessions older than specified hours"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 UPDATE ActiveSessions 
                 SET is_active = 0 
@@ -135,7 +136,7 @@ class SessionsDB:
     
     def get_active_sessions_count(self):
         """Get count of active sessions"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT COUNT(*) as count 
                 FROM ActiveSessions 

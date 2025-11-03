@@ -2,12 +2,19 @@
 Database connection management
 Handles connection pooling and basic operations
 FIXED: Better connection persistence and case-insensitive column names
+MODIFIED: Made database connection thread-local to prevent errors under load
 """
 
 import pyodbc
 from config import Config
 from contextlib import contextmanager
-import logging # <-- ADDED
+import logging
+import threading  # <-- IMPORTED THIS
+
+# --- MODIFICATION: Use thread-local storage ---
+_db_storage = threading.local()
+# --- END MODIFICATION ---
+
 
 class DatabaseConnection:
     """Database connection handler"""
@@ -292,11 +299,27 @@ class CaseInsensitiveDict(dict):
 
 
 # Global instance (singleton pattern)
-_db_instance = None
+# _db_instance = None # <-- REMOVED THIS
 
 def get_db():
-    """Get the global database instance"""
-    global _db_instance
-    if _db_instance is None:
-        _db_instance = DatabaseConnection()
-    return _db_instance
+    """Get the global database instance (THREAD-LOCAL)"""
+    # global _db_instance # <-- REMOVED THIS
+    
+    # --- MODIFICATION: Use thread-local storage ---
+    instance = getattr(_db_storage, 'instance', None)
+    
+    # Check if instance exists for this thread, or if its connection is dead
+    if instance is None or instance.connection is None:
+        instance = DatabaseConnection()
+        _db_storage.instance = instance
+    else:
+        # Even if instance exists, test its connection
+        # The connect() method itself does a lightweight "SELECT 1" test
+        if not instance.connect():
+            # Reconnect failed, create a new instance
+            logging.warning("Thread-local DB connection test failed, creating new instance.")
+            instance = DatabaseConnection()
+            _db_storage.instance = instance
+    
+    return instance
+    # --- END MODIFICATION ---

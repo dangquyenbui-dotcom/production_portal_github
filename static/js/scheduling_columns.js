@@ -11,7 +11,10 @@ schedulingApp.columns = {
         if (!dropdown || headers.length === 0) return;
 
         let savedConfig = JSON.parse(localStorage.getItem(schedulingApp.columns.COLUMNS_CONFIG_KEY));
-        const defaultHidden = ['Ord Qty - (00) Level', 'Total Shipped Qty', 'Produced Qty', 'ERP Can Make', 'ERP Low Risk', 'ERP High Risk', 'Unit Price', 'Qty Per UoM', 'Sales Rep', 'SO Type'];
+        
+        // --- MODIFIED: Removed 'SO Type' from defaultHidden ---
+        const defaultHidden = ['Ord Qty - (00) Level', 'Total Shipped Qty', 'Produced Qty', 'ERP Can Make', 'ERP Low Risk', 'ERP High Risk', 'Unit Price', 'Qty Per UoM', 'Sales Rep'];
+        // --- END MODIFICATION ---
 
         if (!savedConfig) {
             savedConfig = {};

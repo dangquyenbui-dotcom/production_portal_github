@@ -2,6 +2,7 @@
 Downtime categories database operations
 Handles hierarchical category structure with main and sub-categories
 FIXED: Better error handling for deactivation
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -11,11 +12,11 @@ class CategoriesDB:
     """Downtime categories database operations"""
     
     def __init__(self):
-        self.db = get_db()
+        pass # Do not cache get_db() here
     
     def get_all(self, active_only=True):
         """Get all categories with parent-child relationship"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check if table exists
             if not conn.check_table_exists('DowntimeCategories'):
                 return []
@@ -71,7 +72,7 @@ class CategoriesDB:
     
     def get_hierarchical(self, active_only=True):
         """Get categories organized hierarchically (main categories with their subcategories)"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check if parent_id column exists
             columns_query = """
                 SELECT COLUMN_NAME 
@@ -129,7 +130,7 @@ class CategoriesDB:
     
     def get_by_id(self, category_id):
         """Get category by ID"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = "SELECT * FROM DowntimeCategories WHERE category_id = ?"
             results = conn.execute_query(query, (category_id,))
             return results[0] if results else None
@@ -137,7 +138,7 @@ class CategoriesDB:
     def create(self, category_name, category_code, description, parent_id, 
               color_code, notification_required, username):
         """Create new category"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Check if code already exists
             check_query = "SELECT category_id FROM DowntimeCategories WHERE category_code = ?"
             existing = conn.execute_query(check_query, (category_code,))
@@ -205,7 +206,7 @@ class CategoriesDB:
     def update(self, category_id, category_name, description, color_code, 
               notification_required, username):
         """Update existing category (code cannot be changed)"""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # Get current record for comparison
             current = self.get_by_id(category_id)
             if not current:
@@ -281,7 +282,7 @@ class CategoriesDB:
     def deactivate(self, category_id, username):
         """Deactivate category (soft delete)"""
         try:
-            with self.db.get_connection() as conn:
+            with get_db().get_connection() as conn:
                 # First, ensure we have a valid connection
                 if not conn:
                     return False, "Database connection failed"
@@ -370,7 +371,7 @@ class CategoriesDB:
     def reactivate(self, category_id, username):
         """Reactivate a deactivated category"""
         try:
-            with self.db.get_connection() as conn:
+            with get_db().get_connection() as conn:
                 # Ensure we have a valid connection
                 if not conn:
                     return False, "Database connection failed"

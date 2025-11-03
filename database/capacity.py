@@ -2,6 +2,7 @@
 """
 Production Capacity database operations
 Manages the production output rates for each line.
+MODIFIED: Removed cached db instance, calls get_db() in each method
 """
 
 from .connection import get_db
@@ -10,12 +11,12 @@ class ProductionCapacityDB:
     """Production Capacity database operations"""
 
     def __init__(self):
-        self.db = get_db()
+        # self.db = get_db() # <-- REMOVED
         self.ensure_table()
 
     def ensure_table(self):
         """Ensure the ProductionCapacity table exists."""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             if not conn.check_table_exists('ProductionCapacity'):
                 print("Creating ProductionCapacity table...")
                 create_query = """
@@ -38,7 +39,7 @@ class ProductionCapacityDB:
 
     def get_all(self):
         """Get all capacity settings, joined with line and facility info."""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = """
                 SELECT 
                     pc.capacity_id,
@@ -57,7 +58,7 @@ class ProductionCapacityDB:
 
     def create_or_update(self, line_id, capacity_per_shift, unit, notes, username):
         """Create a new capacity setting or update it if it exists for the line."""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             # MERGE statement performs an "upsert" (update or insert)
             query = """
                 MERGE ProductionCapacity AS target
@@ -86,7 +87,7 @@ class ProductionCapacityDB:
 
     def delete(self, capacity_id):
         """Delete a capacity setting."""
-        with self.db.get_connection() as conn:
+        with get_db().get_connection() as conn:
             query = "DELETE FROM ProductionCapacity WHERE capacity_id = ?"
             success = conn.execute_query(query, (capacity_id,))
             if success:
