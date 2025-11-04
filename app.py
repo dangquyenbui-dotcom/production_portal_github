@@ -1,8 +1,10 @@
-# app.py - ADDED more detailed startup logging
+# app.py - ADDED Semaphore for heavy queries
 
 import logging
 # --- ADDED: Import for file logging ---
 from logging.handlers import RotatingFileHandler
+# --- ADDED: Import for threading ---
+import threading
 # --- END ADDED ---
 from flask import Flask, session
 import os
@@ -102,6 +104,14 @@ def create_app():
 
     # Initialize database
     initialize_database()
+
+    # --- ADDED: Semaphore for heavy queries ---
+    # Allow only 3 heavy queries to run at once, leaving 7 threads (based on 10 total) for other requests
+    # Adjust this number based on your server's total threads
+    heavy_query_limit = 3
+    app.heavy_query_semaphore = threading.Semaphore(heavy_query_limit)
+    app.logger.info(f"Heavy query semaphore initialized with {heavy_query_limit} permits.")
+    # --- END ADDED ---
 
     app.logger.info('Flask app created and configured.')
 

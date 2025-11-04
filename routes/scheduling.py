@@ -4,9 +4,11 @@ Production Scheduling routes
 Handles display and updates for the production scheduling grid.
 ADDED: API endpoint to export detailed FG inventory for summary cards.
 ADDED: API endpoint to export detailed Shipped Orders for summary card.
+MODIFIED: Added Semaphore lock to heavy query in index().
 """
 
-from flask import Blueprint, render_template, jsonify, request, session, redirect, url_for, flash, send_file
+from flask import (Blueprint, render_template, jsonify, request, session, 
+                   redirect, url_for, flash, send_file, current_app) # <-- ADDED current_app
 from auth import require_login, require_scheduling_admin, require_scheduling_user
 from routes.main import validate_session
 # UPDATED IMPORT: Added ERP service getter
@@ -32,8 +34,27 @@ def index():
         flash('Scheduling privileges are required to access this module.', 'error')
         return redirect(url_for('main.dashboard'))
 
-    # Fetch data from ERP joined with local projections
-    data = scheduling_db.get_schedule_data()
+    # --- ADDED: Acquire Semaphore ---
+    # Get the semaphore from the Flask app object
+    heavy_query_semaphore = current_app.heavy_query_semaphore
+    current_app.logger.info("Scheduling index: Waiting to acquire heavy query lock...")
+    heavy_query_semaphore.acquire()
+    current_app.logger.info("Scheduling index: Lock acquired. Running heavy query.")
+    # --- END ADDED ---
+    
+    try:
+        # Fetch data from ERP joined with local projections
+        data = scheduling_db.get_schedule_data()
+    except Exception as e:
+        # Log the error, but we must release the lock
+        current_app.logger.error(f"Error during scheduling_db.get_schedule_data(): {e}")
+        flash('An error occurred while fetching scheduling data.', 'error')
+        data = {} # Set empty data
+    finally:
+        # --- ADDED: Release Semaphore ---
+        heavy_query_semaphore.release()
+        current_app.logger.info("Scheduling index: Lock released.")
+    # --- END ADDED ---
 
     # Unpack the dictionary to pass its contents as separate variables to the template
     return render_template(
@@ -49,7 +70,7 @@ def index():
 @scheduling_bp.route('/api/update-projection', methods=['POST'])
 @validate_session
 def update_projection():
-    # ... (existing code remains the same) ...
+    # ... (This route is fast, no changes needed) ...
     """API endpoint to save projection data from the grid."""
     if not require_scheduling_admin(session):
         return jsonify({'success': False, 'message': 'Edit permission required'}), 403
@@ -95,7 +116,7 @@ def update_projection():
 @scheduling_bp.route('/api/export-xlsx', methods=['POST'])
 @validate_session
 def export_xlsx():
-    # ... (existing code remains the same) ...
+    # ... (This route is fast, no changes needed) ...
     """API endpoint to export the visible grid data to an XLSX file."""
     if not (require_scheduling_admin(session) or require_scheduling_user(session)):
         return jsonify({'success': False, 'message': 'Authentication required'}), 401
@@ -159,7 +180,8 @@ def export_xlsx():
 @scheduling_bp.route('/api/export-fg-details')
 @validate_session
 def export_fg_details():
-    # ... (existing code remains the same) ...
+    # ... (This route is medium-slow, but let's leave it unlocked for now) ...
+    # ... (If it also causes freezes, wrap 'erp_service.get_detailed_fg_inventory' in a semaphore) ...
     """API endpoint to export detailed FG inventory based on date buckets."""
     if not (require_scheduling_admin(session) or require_scheduling_user(session)):
         flash('Permission denied.', 'error')
@@ -218,21 +240,7 @@ def export_fg_details():
         for row_dict in inventory_data:
             row_values = [row_dict.get(h) for h in headers]
             ws.append(row_values)
-
-        # Auto-size columns (optional, can be slow for large files)
-        # for col in ws.columns:
-        #     max_length = 0
-        #     column = col[0].column_letter # Get the column name
-        #     for cell in col:
-        #         try: # Necessary to avoid error on empty cells
-        #             if len(str(cell.value)) > max_length:
-        #                 max_length = len(cell.value)
-        #         except:
-        #             pass
-        #     adjusted_width = (max_length + 2)
-        #     ws.column_dimensions[column].width = adjusted_width
-
-        # Save to BytesIO
+        
         output = BytesIO()
         wb.save(output)
         output.seek(0)
@@ -257,6 +265,7 @@ def export_fg_details():
 @scheduling_bp.route('/api/export-shipped-details')
 @validate_session
 def export_shipped_details():
+    # ... (This route is also medium-slow, leave unlocked for now) ...
     """API endpoint to export detailed Shipped Orders for the current month."""
     if not (require_scheduling_admin(session) or require_scheduling_user(session)):
         flash('Permission denied.', 'error')

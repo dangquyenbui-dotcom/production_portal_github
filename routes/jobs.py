@@ -1,9 +1,11 @@
 # routes/jobs.py
 """
 Routes for viewing live job data.
+MODIFIED: Added Semaphore lock to heavy query routes.
 """
 
-from flask import Blueprint, render_template, session, redirect, url_for, flash, jsonify
+from flask import (Blueprint, render_template, session, redirect, 
+                   url_for, flash, jsonify, current_app) # <-- ADDED current_app
 from auth import require_login
 from routes.main import validate_session
 from database import get_erp_service
@@ -121,19 +123,32 @@ def view_open_jobs():
         return redirect(url_for('main.login'))
 
     job_list = []
+    # --- ADDED: Acquire Semaphore ---
+    heavy_query_semaphore = current_app.heavy_query_semaphore
+    current_app.logger.info("Jobs view: Waiting to acquire heavy query lock...")
+    heavy_query_semaphore.acquire()
+    current_app.logger.info("Jobs view: Lock acquired. Running heavy query.")
+    # --- END ADDED ---
+
     try:
         job_numbers = erp_service.get_all_open_job_numbers() # Get list of job number strings
-        print(f"Found {len(job_numbers)} open job numbers.")
+        current_app.logger.info(f"Found {len(job_numbers)} open job numbers.")
         if job_numbers:
             job_list = _get_job_data(job_numbers) # Process these job numbers
         else:
             job_list = []
-            print("No open job numbers found.")
+            current_app.logger.info("No open job numbers found.")
     except Exception as e:
         flash(f'Error fetching job data from ERP: {e}', 'error')
         job_list = []
         import traceback
         traceback.print_exc()
+        current_app.logger.error(f"Error during jobs.view_open_jobs: {e}")
+    finally:
+        # --- ADDED: Release Semaphore ---
+        heavy_query_semaphore.release()
+        current_app.logger.info("Jobs view: Lock released.")
+    # --- END ADDED ---
 
     return render_template(
         'jobs/index.html',
@@ -148,15 +163,31 @@ def get_open_jobs_data():
     if not require_login(session):
         return jsonify(success=False, message="Authentication required"), 401
 
+    # --- ADDED: Acquire Semaphore ---
+    heavy_query_semaphore = current_app.heavy_query_semaphore
+    current_app.logger.info("Jobs API: Waiting to acquire heavy query lock...")
+    heavy_query_semaphore.acquire()
+    current_app.logger.info("Jobs API: Lock acquired. Running heavy query.")
+    # --- END ADDED ---
+
     try:
         job_numbers = erp_service.get_all_open_job_numbers() # Get list of job number strings
         if job_numbers:
              job_list = _get_job_data(job_numbers) # Process these job numbers
         else:
              job_list = []
+        
+        # --- MOVED: Success response now inside try block ---
         return jsonify(success=True, jobs=job_list)
+    
     except Exception as e:
         print(f"Error fetching live job data: {e}")
         import traceback
         traceback.print_exc()
+        current_app.logger.error(f"Error during jobs.get_open_jobs_data: {e}")
         return jsonify(success=False, message=f"Error fetching data: {str(e)}"), 500
+    finally:
+        # --- ADDED: Release Semaphore ---
+        heavy_query_semaphore.release()
+        current_app.logger.info("Jobs API: Lock released.")
+    # --- END ADDED ---

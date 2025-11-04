@@ -1,9 +1,11 @@
 # routes/mrp.py
 """
 MRP (Material Requirements Planning) Viewer routes.
+MODIFIED: Added Semaphore lock to all heavy query routes.
 """
 
-from flask import Blueprint, render_template, session, redirect, url_for, flash, request, jsonify, send_file
+from flask import (Blueprint, render_template, session, redirect, url_for, 
+                   flash, request, jsonify, send_file, current_app) # <-- ADDED current_app
 from auth import require_login
 from routes.main import validate_session
 # Correctly imports the MRP service, which internally uses the ERP service
@@ -22,11 +24,24 @@ def view_mrp():
         flash('MRP access is restricted to administrators and scheduling admins.', 'error')
         return redirect(url_for('main.dashboard'))
 
+    # --- ADDED: Acquire Semaphore ---
+    heavy_query_semaphore = current_app.heavy_query_semaphore
+    current_app.logger.info("MRP view: Waiting to acquire heavy query lock...")
+    heavy_query_semaphore.acquire()
+    current_app.logger.info("MRP view: Lock acquired. Running heavy query.")
+    # --- END ADDED ---
+
     try:
         mrp_results = mrp_service.calculate_mrp_suggestions()
     except Exception as e:
         flash(f'An error occurred while running the MRP calculation: {e}', 'error')
         mrp_results = []
+        current_app.logger.error(f"Error during mrp.view_mrp: {e}")
+    finally:
+        # --- ADDED: Release Semaphore ---
+        heavy_query_semaphore.release()
+        current_app.logger.info("MRP view: Lock released.")
+    # --- END ADDED ---
 
     return render_template(
         'mrp/index.html',
@@ -41,6 +56,13 @@ def customer_summary():
     if not (session.get('user', {}).get('is_admin') or session.get('user', {}).get('is_scheduling_admin')):
         flash('MRP access is restricted.', 'error')
         return redirect(url_for('main.dashboard'))
+
+    # --- ADDED: Acquire Semaphore ---
+    heavy_query_semaphore = current_app.heavy_query_semaphore
+    current_app.logger.info("MRP summary: Waiting to acquire heavy query lock...")
+    heavy_query_semaphore.acquire()
+    current_app.logger.info("MRP summary: Lock acquired. Running heavy query.")
+    # --- END ADDED ---
 
     try:
         mrp_results = mrp_service.calculate_mrp_suggestions()
@@ -62,6 +84,12 @@ def customer_summary():
         selected_customer = None
         summary_data = None
         orders_for_template = []
+        current_app.logger.error(f"Error during mrp.customer_summary: {e}")
+    finally:
+        # --- ADDED: Release Semaphore ---
+        heavy_query_semaphore.release()
+        current_app.logger.info("MRP summary: Lock released.")
+    # --- END ADDED ---
 
     filters = {
         'bu': request.args.get('bu'),
@@ -90,6 +118,13 @@ def buyer_view():
         flash('Purchasing access is required to view this page.', 'error')
         return redirect(url_for('main.dashboard'))
 
+    # --- ADDED: Acquire Semaphore ---
+    heavy_query_semaphore = current_app.heavy_query_semaphore
+    current_app.logger.info("MRP buyer-view: Waiting to acquire heavy query lock...")
+    heavy_query_semaphore.acquire()
+    current_app.logger.info("MRP buyer-view: Lock acquired. Running heavy query.")
+    # --- END ADDED ---
+
     try:
         data = mrp_service.get_consolidated_shortages()
         shortages = data.get('shortages', [])
@@ -98,6 +133,12 @@ def buyer_view():
         flash(f'An error occurred while calculating shortages: {e}', 'error')
         shortages = []
         customers = []
+        current_app.logger.error(f"Error during mrp.buyer_view: {e}")
+    finally:
+        # --- ADDED: Release Semaphore ---
+        heavy_query_semaphore.release()
+        current_app.logger.info("MRP buyer-view: Lock released.")
+    # --- END ADDED ---
 
     return render_template(
         'mrp/buyer_view.html',
@@ -109,6 +150,7 @@ def buyer_view():
 @mrp_bp.route('/api/export-shortages-xlsx', methods=['POST'])
 @validate_session
 def export_shortages_xlsx():
+    # ... (This route is fast, no changes needed) ...
     """API endpoint to export the consolidated shortages data to an XLSX file."""
     if not (session.get('user', {}).get('is_admin')
             or session.get('user', {}).get('is_scheduling_admin')
@@ -152,6 +194,7 @@ def export_shortages_xlsx():
 @mrp_bp.route('/api/export-xlsx', methods=['POST'])
 @validate_session
 def export_mrp_xlsx():
+    # ... (This route is fast, no changes needed) ...
     """API endpoint to export the visible MRP data to an XLSX file."""
     if not (session.get('user', {}).get('is_admin') or session.get('user', {}).get('is_scheduling_admin')):
         return jsonify({'success': False, 'message': 'Authentication required'}), 401
