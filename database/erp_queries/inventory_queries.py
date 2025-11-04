@@ -2,6 +2,7 @@
 """
 ERP Queries related to Inventory.
 MODIFIED: Added Customer Name to get_detailed_fg_inventory query.
+MODIFIED: Added BU to get_detailed_fg_inventory query.
 """
 from database.erp_connection_base import get_erp_db_connection
 from datetime import datetime # Ensure datetime is imported if used for type hints, etc.
@@ -58,7 +59,7 @@ class InventoryQueries:
     # --- MODIFIED METHOD ---
     def get_detailed_fg_inventory(self, start_date=None, end_date=None):
         """
-        Retrieves detailed Finished Goods inventory data (Part, Lot, Date, Qty, Warehouse, Value, Customer)
+        Retrieves detailed Finished Goods inventory data (Part, Lot, Date, Qty, Warehouse, Value, Customer, BU)
         optionally filtered by lot date range. Dates should be in 'YYYY-MM-DD' format.
         """
         db = get_erp_db_connection()
@@ -70,6 +71,8 @@ class InventoryQueries:
                 p.pr_descrip AS PartDescription,
                 -- *** ADDED Customer Name ***
                 ISNULL(cust.p1_name, 'N/A') AS CustomerName,
+                -- *** ADDED BU ***
+                CASE WHEN ca.ca_name = 'Stick Pack' THEN 'SP' ELSE 'BPS' END AS BU,
                 f.fi_lotnum AS SystemLot,
                 f.fi_userlot AS UserLot,
                 f.fi_lotdate AS LotDate,
@@ -84,6 +87,8 @@ class InventoryQueries:
             JOIN dmware w ON f.fi_waid = w.wa_id
             -- *** ADDED Join for Customer ***
             LEFT JOIN dmpr1 cust ON p.pr_user5 = cust.p1_id
+            -- *** ADDED Join for BU ***
+            LEFT JOIN dmcats ca ON p.pr_caid = ca.ca_id
             WHERE f.fi_balance > 0
               AND p.pr_codenum LIKE 'T%'
               AND w.wa_name IN ('DUARTE', 'IRWINDALE')
