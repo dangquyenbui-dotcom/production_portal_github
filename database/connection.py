@@ -117,19 +117,7 @@ class DatabaseConnection:
         # Ensure we have a connection
         if not self.cursor or not self.connection:
             if not self.connect():
-                logging.error("Failed to establish database connection") # <-- MODIFIED
-                if query.strip().upper().startswith('SELECT'):
-                    return []
-                return False
-        
-        try:
-            # Test connection is alive
-            self.cursor.execute("SELECT 1")
-            self.cursor.fetchone()
-        except:
-            # Connection died, reconnect
-            if not self.connect():
-                logging.error("Failed to reconnect to database") # <-- MODIFIED
+                logging.error("Failed to establish database connection")
                 if query.strip().upper().startswith('SELECT'):
                     return []
                 return False
@@ -157,9 +145,41 @@ class DatabaseConnection:
                 return True
                 
         except pyodbc.Error as e:
-            logging.error(f"Query execution failed: {str(e)}") # <-- MODIFIED
-            logging.error(f"Query: {query}") # <-- MODIFIED
-            logging.error(f"Params: {params}") # <-- MODIFIED
+            # Check if it's a connection error and try to reconnect once
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['connection', 'closed', 'broken', 'invalid']):
+                logging.warning(f"Connection error detected, attempting reconnect: {str(e)}")
+                if self.connect():
+                    # Retry the query once after reconnection
+                    try:
+                        if params:
+                            self.cursor.execute(query, params)
+                        else:
+                            self.cursor.execute(query)
+                        
+                        if query.strip().upper().startswith('SELECT'):
+                            columns = [column[0] for column in self.cursor.description] if self.cursor.description else []
+                            results = []
+                            for row in self.cursor.fetchall():
+                                row_dict = CaseInsensitiveDict()
+                                for i, col in enumerate(columns):
+                                    row_dict[col] = row[i]
+                                results.append(row_dict)
+                            return results
+                        else:
+                            self.connection.commit()
+                            return True
+                    except pyodbc.Error as retry_error:
+                        logging.error(f"Query failed after reconnection: {str(retry_error)}")
+                        logging.error(f"Query: {query}")
+                        logging.error(f"Params: {params}")
+                else:
+                    logging.error("Failed to reconnect to database")
+            else:
+                logging.error(f"Query execution failed: {str(e)}")
+                logging.error(f"Query: {query}")
+                logging.error(f"Params: {params}")
+            
             if self.connection:
                 try:
                     self.connection.rollback()
@@ -170,7 +190,7 @@ class DatabaseConnection:
                 return []
             return False
         except Exception as e:
-            logging.error(f"Unexpected error in execute_query: {str(e)}") # <-- MODIFIED
+            logging.error(f"Unexpected error in execute_query: {str(e)}")
             if query.strip().upper().startswith('SELECT'):
                 return []
             return False
@@ -180,16 +200,7 @@ class DatabaseConnection:
         # Ensure we have a connection
         if not self.cursor or not self.connection:
             if not self.connect():
-                logging.error("Failed to establish database connection") # <-- MODIFIED
-                return None
-        
-        try:
-            # Test connection is alive
-            self.cursor.execute("SELECT 1")
-            self.cursor.fetchone()
-        except:
-            # Connection died, reconnect
-            if not self.connect():
+                logging.error("Failed to establish database connection")
                 return None
         
         try:
@@ -201,8 +212,30 @@ class DatabaseConnection:
             result = self.cursor.fetchone()
             return result[0] if result else None
             
+        except pyodbc.Error as e:
+            # Check if it's a connection error and try to reconnect once
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['connection', 'closed', 'broken', 'invalid']):
+                logging.warning(f"Connection error detected in scalar query, attempting reconnect: {str(e)}")
+                if self.connect():
+                    # Retry the query once after reconnection
+                    try:
+                        if params:
+                            self.cursor.execute(query, params)
+                        else:
+                            self.cursor.execute(query)
+                        result = self.cursor.fetchone()
+                        return result[0] if result else None
+                    except Exception as retry_error:
+                        logging.error(f"Scalar query failed after reconnection: {str(retry_error)}")
+                        return None
+                else:
+                    logging.error("Failed to reconnect to database")
+            else:
+                logging.warning(f"Scalar query failed: {str(e)}")
+            return None
         except Exception as e:
-            logging.warning(f"Scalar query failed: {str(e)}") # <-- MODIFIED
+            logging.warning(f"Scalar query failed: {str(e)}")
             return None
     
     def check_table_exists(self, table_name):
