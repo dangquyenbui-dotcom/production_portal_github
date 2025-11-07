@@ -178,7 +178,8 @@
         cursor: pointer;
         text-decoration: none;
         color: inherit;
-        border: 1px solid var(--border-primary);
+        /* MODIFIED: Set blue border as default for all cards */
+        border: 2px solid var(--accent-blue);
     }
 
     .action-card:hover {
@@ -205,7 +206,7 @@
 
     .action-card.admin {
         background: var(--gradient-subtle);
-        border: 2px solid var(--accent-blue);
+        border: 2px solid var(--accent-blue); /* This rule is now redundant but fine */
     }
 
     [data-theme="dark"] .action-card.admin {
@@ -215,7 +216,7 @@
 
     .action-card.logout {
         background: var(--bg-secondary);
-        border: 2px solid var(--accent-red);
+        border: 2px solid var(--accent-red); /* This overrides the base blue border */
     }
 
     [data-theme="dark"] .action-card.logout {

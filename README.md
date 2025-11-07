@@ -309,3 +309,6 @@ Access is controlled by Active Directory group membership. The local `production
 │   └── pdf\_generator.py    \# CoC PDF generation logic
 │
 └── start\_production\_portal.bat \# Production startup script
+
+```
+```
